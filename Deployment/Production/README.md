@@ -27,6 +27,7 @@ Subscription: **Azure subscription 1** (`1430951b-2576-4461-8c34-f0d88afb5971`)
 | **Coolify Project** | Communication Platform → production → whatsapp-api |
 | **Compose File** | `Deployment/Production/docker-compose.yml` |
 | **Login** | `admin@local` / `Admin123!` |
+| **Migrations** | Applied on API start via `prisma migrate deploy` (init + phase1–4) |
 
 > **Note:** `http://74.225.185.16:8000` is the **Coolify dashboard** (PaaS admin). Your app runs on **port 80** via Traefik at the sslip.io URL above.
 
