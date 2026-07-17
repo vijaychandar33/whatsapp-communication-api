@@ -6,6 +6,6 @@ build/
 *.log
 .DS_Store
 coverage/
-storage/
+/storage/
 *.tsbuildinfo
 .vite/
