@@ -98,8 +98,8 @@ services:
       args:
         VITE_API_URL: ""
     restart: unless-stopped
-    ports:
-      - "80:80"
+    expose:
+      - "80"
     depends_on:
       api:
         condition: service_healthy
