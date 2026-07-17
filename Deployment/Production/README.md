@@ -37,6 +37,23 @@ Subscription: **Azure subscription 1** (`1430951b-2576-4461-8c34-f0d88afb5971`)
 | `README.md` | Azure + Coolify infrastructure and app access details |
 | `docker-compose.yml` | Production compose stack for Coolify |
 | `.env.example` | Environment variables reference for Coolify |
+| `auto-deploy.yml` | GitHub Actions workflow for auto-deploy on push to `main` |
+
+## Auto deployment
+
+Pushes to `main` that touch `backend/`, `frontend/`, or `Deployment/Production/` trigger a Coolify redeploy via GitHub Actions.
+
+**One-time setup** — add these GitHub repo secrets (`Settings → Secrets and variables → Actions`):
+
+| Secret | Value |
+|--------|-------|
+| `COOLIFY_URL` | `http://74.225.185.16:8000` |
+| `COOLIFY_TOKEN` | API token from Coolify → Keys & Tokens |
+| `COOLIFY_APP_UUID` | `uaakcbe6tb68ol5bb6x0fqyr` |
+
+Active workflow: `.github/workflows/deploy-production.yml` (mirrors `auto-deploy.yml`).
+
+Manual trigger: GitHub → Actions → **Deploy Production (Coolify)** → Run workflow.
 
 SSH authentication uses key-only access (`~/.ssh/id_rsa`). Password authentication is disabled.
 

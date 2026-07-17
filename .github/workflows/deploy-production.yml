@@ -1,0 +1,110 @@
+name: Deploy Production (Coolify)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - backend/**
+      - frontend/**
+      - Deployment/Production/**
+      - .github/workflows/deploy-production.yml
+  workflow_dispatch:
+
+concurrency:
+  group: coolify-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Trigger Coolify deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Queue Coolify deployment
+        env:
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          COOLIFY_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${COOLIFY_URL:-}" ] || [ -z "${COOLIFY_TOKEN:-}" ] || [ -z "${COOLIFY_APP_UUID:-}" ]; then
+            echo "Missing GitHub secrets: COOLIFY_URL, COOLIFY_TOKEN, COOLIFY_APP_UUID"
+            exit 1
+          fi
+
+          COOLIFY_URL="${COOLIFY_URL%/}"
+
+          echo "Triggering deploy for ${COOLIFY_APP_UUID}..."
+          response="$(curl -fsS -X POST \
+            -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"uuid\":\"${COOLIFY_APP_UUID}\"}" \
+            "${COOLIFY_URL}/api/v1/deploy")"
+
+          echo "$response"
+
+          deployment_uuid="$(echo "$response" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          deployments = data.get('deployments') or []
+          print(deployments[0].get('deployment_uuid', '') if deployments else '')
+          ")"
+
+          if [ -z "$deployment_uuid" ]; then
+            echo "Could not read deployment_uuid from Coolify response"
+            exit 1
+          fi
+
+          echo "Deployment queued: ${deployment_uuid}"
+
+      - name: Wait for deployment result
+        env:
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          COOLIFY_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+        run: |
+          set -euo pipefail
+          COOLIFY_URL="${COOLIFY_URL%/}"
+
+          deployment_uuid="$(curl -fsS \
+            -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+            "${COOLIFY_URL}/api/v1/deployments?uuid=${COOLIFY_APP_UUID}" \
+            | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          items = data if isinstance(data, list) else data.get('data', [])
+          print(items[0]['uuid'] if items else '')
+          ")"
+
+          if [ -z "$deployment_uuid" ]; then
+            echo "No deployment found to poll"
+            exit 0
+          fi
+
+          echo "Polling deployment ${deployment_uuid}..."
+          for i in $(seq 1 90); do
+            status="$(curl -fsS \
+              -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+              "${COOLIFY_URL}/api/v1/deployments/${deployment_uuid}" \
+              | python3 -c "import json,sys; print(json.load(sys.stdin).get('status',''))")"
+
+            echo "[$i] status=${status}"
+
+            case "$status" in
+              finished|success)
+                echo "Deploy succeeded"
+                exit 0
+                ;;
+              failed|error|cancelled)
+                echo "Deploy failed"
+                exit 1
+                ;;
+            esac
+
+            sleep 20
+          done
+
+          echo "Deploy poll timed out (still in progress on Coolify)"
+          exit 0
