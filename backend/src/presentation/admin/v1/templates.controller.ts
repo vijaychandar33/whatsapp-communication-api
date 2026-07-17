@@ -1,0 +1,51 @@
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ChannelCode } from '@prisma/client';
+import { JwtAuthGuard } from '../../guards/jwt-auth.guard';
+import { PaginationDto } from '../../dto/pagination.dto';
+import {
+  CreateTemplateHandler,
+  SyncTemplatesHandler,
+} from '../../../application/commands/template-handlers';
+import { ListTemplatesHandler } from '../../../application/queries/resource-handlers';
+import { CreateTemplateDto, SyncTemplatesDto } from './dto/resources.dto';
+
+@ApiTags('Admin Templates')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
+@Controller('admin/v1/templates')
+export class TemplatesController {
+  constructor(
+    private readonly listTemplates: ListTemplatesHandler,
+    private readonly createTemplate: CreateTemplateHandler,
+    private readonly syncTemplates: SyncTemplatesHandler,
+  ) {}
+
+  @Get()
+  async list(
+    @Query() pagination: PaginationDto,
+    @Query('organizationId') organizationId: string,
+    @Query('channelCode') channelCode?: ChannelCode,
+  ) {
+    return this.listTemplates.execute(organizationId, pagination, channelCode);
+  }
+
+  @Post()
+  async create(@Body() dto: CreateTemplateDto) {
+    return {
+      data: await this.createTemplate.execute(dto),
+      message: 'Template created',
+    };
+  }
+
+  @Post('sync')
+  async sync(@Body() dto: SyncTemplatesDto) {
+    return {
+      data: await this.syncTemplates.execute(
+        dto.organizationId,
+        dto.communicationAccountId,
+      ),
+      message: 'Templates synced',
+    };
+  }
+}
