@@ -16,6 +16,28 @@ Subscription: **Azure subscription 1** (`1430951b-2576-4461-8c34-f0d88afb5971`)
 | **Coolify Version** | v4.1.2 |
 | **Admin Status** | Registered |
 
+### Application (whatsapp-api)
+
+| Item | Value |
+|------|-------|
+| **App URL** | http://uaakcbe6tb68ol5bb6x0fqyr.74.225.185.16.sslip.io |
+| **API Health** | http://uaakcbe6tb68ol5bb6x0fqyr.74.225.185.16.sslip.io/admin/v1/health |
+| **Swagger** | http://uaakcbe6tb68ol5bb6x0fqyr.74.225.185.16.sslip.io/docs |
+| **GitHub Repo** | https://github.com/vijaychandar33/whatsapp-communication-api |
+| **Coolify Project** | Communication Platform → production → whatsapp-api |
+| **Compose File** | `Deployment/docker-compose.coolify.yml` |
+| **Login** | `admin@local` / `Admin123!` |
+
+> **Note:** `http://74.225.185.16:8000` is the **Coolify dashboard** (PaaS admin). Your app runs on **port 80** via Traefik at the sslip.io URL above.
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `README.md` | Azure + Coolify infrastructure and app access details |
+| `docker-compose.coolify.yml` | Production compose stack for Coolify |
+| `.env.coolify.example` | Environment variables reference for Coolify |
+
 SSH authentication uses key-only access (`~/.ssh/id_rsa`). Password authentication is disabled.
 
 ---
