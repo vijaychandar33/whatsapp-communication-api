@@ -13,6 +13,7 @@ import { Pagination } from '../components/ui/Pagination';
 import { EmptyState } from '../components/ui/EmptyState';
 import { AccountBadge } from '../components/ui/AccountBadge';
 import { Badge, statusTone } from '../components/ui/Badge';
+import { Toast, type ToastState } from '../components/ui/Toast';
 import { cn, fieldControlClass, fieldLabelClass, formatDate } from '../lib/utils';
 
 type Template = {
@@ -57,6 +58,7 @@ export function TemplatesPage() {
     category: 'UTILITY',
     body: '',
   });
+  const [toast, setToast] = useState<ToastState>(null);
   const queryClient = useQueryClient();
 
   const list = usePaginatedList<Template>({
@@ -91,15 +93,31 @@ export function TemplatesPage() {
       return data;
     },
     onSuccess: async (res) => {
+      const account = (accounts.data || []).find((a) => a.id === accountId);
+      const accountLabel =
+        account?.name || account?.phoneNumber || 'WhatsApp account';
       setSyncOpen(false);
       setAccountId('');
       await queryClient.invalidateQueries({ queryKey: ['templates'] });
       const synced = res?.data?.synced ?? 0;
-      window.alert(
-        synced > 0
-          ? `Synced ${synced} template${synced === 1 ? '' : 's'} from Meta.`
-          : 'Sync ok — Meta returned 0 templates for this WABA.',
-      );
+      setToast({
+        tone: synced > 0 ? 'success' : 'info',
+        title:
+          synced > 0
+            ? `Synced ${synced} template${synced === 1 ? '' : 's'}`
+            : 'No templates on Meta',
+        description:
+          synced > 0
+            ? `Pulled from ${accountLabel}. Statuses updated from Meta.`
+            : `${accountLabel} has no message templates in Meta yet.`,
+      });
+    },
+    onError: (err) => {
+      setToast({
+        tone: 'danger',
+        title: 'Sync failed',
+        description: getErrorMessage(err),
+      });
     },
   });
 
@@ -155,6 +173,13 @@ export function TemplatesPage() {
 
   return (
     <div>
+      <Toast
+        open={Boolean(toast)}
+        title={toast?.title || ''}
+        description={toast?.description}
+        tone={toast?.tone || 'success'}
+        onClose={() => setToast(null)}
+      />
       <PageHeader
         title="Templates"
         description="Create templates on Meta and track approval status."
