@@ -122,15 +122,42 @@ export class ListContactsHandler {
         skip: pagination.skip,
         take: pagination.take,
         orderBy: { createdAt: 'desc' },
-        include: { tags: { include: { tag: true } } },
+        include: {
+          tags: { include: { tag: true } },
+          conversations: {
+            where: { deletedAt: null },
+            select: {
+              communicationAccount: {
+                select: {
+                  id: true,
+                  name: true,
+                  phoneNumber: true,
+                },
+              },
+            },
+            take: 20,
+          },
+        },
       }),
       this.prisma.contact.count({ where }),
     ]);
     return {
-      data: items.map((c) => ({
-        ...c,
-        tags: c.tags.map((t) => t.tag),
-      })),
+      data: items.map((c) => {
+        const accountsById = new Map<
+          string,
+          { id: string; name: string; phoneNumber: string | null }
+        >();
+        for (const conv of c.conversations) {
+          const a = conv.communicationAccount;
+          if (a) accountsById.set(a.id, a);
+        }
+        const { conversations: _conversations, ...rest } = c;
+        return {
+          ...rest,
+          tags: c.tags.map((t) => t.tag),
+          whatsappAccounts: [...accountsById.values()],
+        };
+      }),
       meta: buildPaginatedMeta(
         pagination.page ?? 1,
         pagination.limit ?? 20,
@@ -150,12 +177,35 @@ export class GetContactHandler {
       include: {
         tags: { include: { tag: true } },
         notes: { orderBy: { createdAt: 'desc' }, take: 50 },
+        conversations: {
+          where: { deletedAt: null },
+          select: {
+            communicationAccount: {
+              select: {
+                id: true,
+                name: true,
+                phoneNumber: true,
+              },
+            },
+          },
+          take: 20,
+        },
       },
     });
     if (!contact) throw new NotFoundError('Contact', id);
+    const accountsById = new Map<
+      string,
+      { id: string; name: string; phoneNumber: string | null }
+    >();
+    for (const conv of contact.conversations) {
+      const a = conv.communicationAccount;
+      if (a) accountsById.set(a.id, a);
+    }
+    const { conversations: _conversations, ...rest } = contact;
     return {
-      ...contact,
+      ...rest,
       tags: contact.tags.map((t) => t.tag),
+      whatsappAccounts: [...accountsById.values()],
     };
   }
 }
@@ -300,11 +350,15 @@ export class ListTemplatesHandler {
     organizationId: string,
     pagination: PaginationDto,
     channelCode?: ChannelCode,
+    communicationAccountId?: string,
   ) {
     const where = {
       organizationId,
       deletedAt: null,
       ...(channelCode ? { channelCode } : {}),
+      ...(communicationAccountId
+        ? { communicationAccountId }
+        : {}),
     };
     const [items, total] = await Promise.all([
       this.prisma.messageTemplate.findMany({
@@ -312,6 +366,16 @@ export class ListTemplatesHandler {
         skip: pagination.skip,
         take: pagination.take,
         orderBy: { updatedAt: 'desc' },
+        include: {
+          communicationAccount: {
+            select: {
+              id: true,
+              name: true,
+              phoneNumber: true,
+              connectionStatus: true,
+            },
+          },
+        },
       }),
       this.prisma.messageTemplate.count({ where }),
     ]);

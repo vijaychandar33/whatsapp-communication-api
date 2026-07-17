@@ -11,6 +11,7 @@ import { Modal } from '../components/ui/Modal';
 import { Table, THead, TBody, TR, TH, TD } from '../components/ui/Table';
 import { Pagination } from '../components/ui/Pagination';
 import { EmptyState } from '../components/ui/EmptyState';
+import { AccountBadge } from '../components/ui/AccountBadge';
 import { Badge, statusTone } from '../components/ui/Badge';
 import { cn, fieldControlClass, fieldLabelClass, formatDate } from '../lib/utils';
 
@@ -24,6 +25,12 @@ type Template = {
   body?: string | null;
   providerTemplateId?: string | null;
   createdAt?: string;
+  communicationAccountId?: string | null;
+  communicationAccount?: {
+    id: string;
+    name?: string | null;
+    phoneNumber?: string | null;
+  } | null;
 };
 
 type Account = {
@@ -42,6 +49,7 @@ export function TemplatesPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [accountId, setAccountId] = useState('');
   const [createAccountId, setCreateAccountId] = useState('');
+  const [filterAccountId, setFilterAccountId] = useState('');
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [draft, setDraft] = useState({
     name: '',
@@ -52,14 +60,17 @@ export function TemplatesPage() {
   const queryClient = useQueryClient();
 
   const list = usePaginatedList<Template>({
-    queryKey: ['templates', orgId],
+    queryKey: ['templates', orgId, filterAccountId],
     path: '/admin/v1/templates',
     page,
+    params: filterAccountId
+      ? { communicationAccountId: filterAccountId }
+      : {},
   });
 
   const accounts = useQuery({
     queryKey: ['accounts', 'templates', orgId],
-    enabled: Boolean(orgId) && (syncOpen || createOpen),
+    enabled: Boolean(orgId) && (syncOpen || createOpen || true),
     queryFn: async () => {
       const { data } = await api.get<{ data: Account[] }>('/admin/v1/accounts', {
         params: { organizationId: orgId, limit: 100 },
@@ -114,10 +125,14 @@ export function TemplatesPage() {
   });
 
   const refresh = useMutation({
-    mutationFn: async (templateId: string) => {
-      setRefreshingId(templateId);
-      const { data } = await api.post(`/admin/v1/templates/${templateId}/refresh`, {
+    mutationFn: async (row: Template) => {
+      setRefreshingId(row.id);
+      const { data } = await api.post(`/admin/v1/templates/${row.id}/refresh`, {
         organizationId: orgId,
+        communicationAccountId:
+          row.communicationAccountId ||
+          row.communicationAccount?.id ||
+          undefined,
       });
       return data;
     },
@@ -154,7 +169,7 @@ export function TemplatesPage() {
       />
 
       <Card>
-        <CardContent className="border-b border-zinc-100 py-4 dark:border-zinc-800">
+        <CardContent className="flex flex-col gap-3 border-b border-zinc-100 py-4 dark:border-zinc-800 sm:flex-row">
           <Input
             placeholder="Search templates…"
             value={search}
@@ -163,6 +178,21 @@ export function TemplatesPage() {
               setPage(1);
             }}
           />
+          <select
+            className={cn(fieldControlClass, 'h-10 shrink-0 px-3 sm:w-64')}
+            value={filterAccountId}
+            onChange={(e) => {
+              setFilterAccountId(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">All WhatsApp accounts</option>
+            {(accounts.data || []).map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name || a.phoneNumber || a.id.slice(0, 8)}
+              </option>
+            ))}
+          </select>
         </CardContent>
 
         {list.isError ? (
@@ -179,6 +209,7 @@ export function TemplatesPage() {
             <THead>
               <TR>
                 <TH>Name</TH>
+                <TH>WhatsApp account</TH>
                 <TH>Body</TH>
                 <TH>Language</TH>
                 <TH>Category</TH>
@@ -192,6 +223,9 @@ export function TemplatesPage() {
                 <TR key={row.id}>
                   <TD className="font-medium text-zinc-900 dark:text-zinc-100">
                     {row.name || '—'}
+                  </TD>
+                  <TD>
+                    <AccountBadge account={row.communicationAccount} />
                   </TD>
                   <TD className="max-w-xs truncate text-zinc-600 dark:text-zinc-400">
                     {row.body || '—'}
@@ -213,7 +247,7 @@ export function TemplatesPage() {
                       className="h-8 w-8 px-0"
                       title="Refresh status from Meta"
                       disabled={refreshingId === row.id}
-                      onClick={() => refresh.mutate(row.id)}
+                      onClick={() => refresh.mutate(row)}
                     >
                       {refreshingId === row.id ? '…' : '↻'}
                     </Button>

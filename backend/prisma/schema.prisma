@@ -454,6 +454,7 @@ model CommunicationAccount {
   media        Media[]
   webhookEvents WebhookEvent[]
   broadcasts   Broadcast[]
+  messageTemplates MessageTemplate[]
 
   @@index([organizationId, channelCode])
   @@map("communication_accounts")
@@ -632,23 +633,26 @@ model FailedMessage {
 }
 
 model MessageTemplate {
-  id             String           @id @default(uuid())
-  organizationId String           @map("organization_id")
-  channelCode    ChannelCode      @map("channel_code")
-  name           String
-  language       String           @default("en")
-  category       TemplateCategory
-  status         TemplateStatus   @default(DRAFT)
-  body           String
-  components     Json?
-  providerTemplateId String?      @map("provider_template_id")
-  createdAt      DateTime         @default(now()) @map("created_at")
-  updatedAt      DateTime         @updatedAt @map("updated_at")
-  deletedAt      DateTime?        @map("deleted_at")
+  id                     String           @id @default(uuid())
+  organizationId         String           @map("organization_id")
+  communicationAccountId String?          @map("communication_account_id")
+  channelCode            ChannelCode      @map("channel_code")
+  name                   String
+  language               String           @default("en")
+  category               TemplateCategory
+  status                 TemplateStatus   @default(DRAFT)
+  body                   String
+  components             Json?
+  providerTemplateId     String?          @map("provider_template_id")
+  createdAt              DateTime         @default(now()) @map("created_at")
+  updatedAt              DateTime         @updatedAt @map("updated_at")
+  deletedAt              DateTime?        @map("deleted_at")
 
-  organization Organization @relation(fields: [organizationId], references: [id])
+  organization         Organization          @relation(fields: [organizationId], references: [id])
+  communicationAccount CommunicationAccount? @relation(fields: [communicationAccountId], references: [id])
 
-  @@unique([organizationId, channelCode, name, language])
+  @@unique([organizationId, communicationAccountId, name, language])
+  @@index([organizationId, communicationAccountId])
   @@map("message_templates")
 }
 

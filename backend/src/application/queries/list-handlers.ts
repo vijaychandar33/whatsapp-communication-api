@@ -197,6 +197,14 @@ export class ListMessagesHandler {
               phoneNumber: true,
             },
           },
+          communicationAccount: {
+            select: {
+              id: true,
+              name: true,
+              phoneNumber: true,
+              connectionStatus: true,
+            },
+          },
         },
       }),
       this.prisma.message.count({ where }),

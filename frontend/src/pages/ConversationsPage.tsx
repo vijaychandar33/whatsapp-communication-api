@@ -16,6 +16,7 @@ import { useAuth } from '../hooks/useAuth';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { EmptyState } from '../components/ui/EmptyState';
+import { AccountBadge, formatAccountLabel } from '../components/ui/AccountBadge';
 import { Badge, statusTone } from '../components/ui/Badge';
 import { cn, formatDate, truncate } from '../lib/utils';
 
@@ -454,7 +455,11 @@ export function ConversationsPage() {
                       <p className="mt-0.5 truncate text-xs text-slate-500">
                         {row.lastMessageText || 'No messages yet'}
                       </p>
-                      <div className="mt-1 flex gap-1">
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        <AccountBadge
+                          account={row.communicationAccount}
+                          className="text-[10px]"
+                        />
                         {row.status ? (
                           <Badge tone={statusTone(row.status)}>
                             {row.status}
@@ -516,7 +521,8 @@ export function ConversationsPage() {
                       'Conversation'}
                   </div>
                   <div className="text-xs text-slate-500">
-                    {detail.data?.contact?.phoneNumber || '—'} · WhatsApp
+                    {detail.data?.contact?.phoneNumber || '—'} ·{' '}
+                    {formatAccountLabel(detail.data?.communicationAccount)}
                   </div>
                 </div>
                 <select

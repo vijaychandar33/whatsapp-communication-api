@@ -26,9 +26,9 @@ export interface CreateTemplateCommand {
   body: string;
   components?: unknown;
   status?: TemplateStatus;
-  /** When set, submit the template to Meta for this WhatsApp account. */
-  communicationAccountId?: string;
-  /** Local-only draft (skip Meta). Default false when account is provided. */
+  /** WhatsApp account this template belongs to (required). */
+  communicationAccountId: string;
+  /** Local-only draft (skip Meta). */
   draftOnly?: boolean;
 }
 
@@ -53,12 +53,18 @@ export class CreateTemplateHandler {
         },
       ] as unknown[]);
 
+    if (!cmd.communicationAccountId) {
+      throw new ValidationError(
+        'communicationAccountId is required for templates',
+      );
+    }
+
     if (cmd.draftOnly) {
       return this.prisma.messageTemplate.upsert({
         where: {
-          organizationId_channelCode_name_language: {
+          organizationId_communicationAccountId_name_language: {
             organizationId: cmd.organizationId,
-            channelCode: cmd.channelCode,
+            communicationAccountId: cmd.communicationAccountId,
             name,
             language,
           },
@@ -66,6 +72,7 @@ export class CreateTemplateHandler {
         create: {
           id: this.identifiers.generate(),
           organizationId: cmd.organizationId,
+          communicationAccountId: cmd.communicationAccountId,
           channelCode: cmd.channelCode,
           name,
           language,
@@ -81,13 +88,8 @@ export class CreateTemplateHandler {
           status: cmd.status ?? TemplateStatus.DRAFT,
           deletedAt: null,
         },
+        include: accountInclude,
       });
-    }
-
-    if (!cmd.communicationAccountId) {
-      throw new ValidationError(
-        'communicationAccountId is required to submit a template to Meta',
-      );
     }
 
     if (cmd.channelCode !== ChannelCode.WHATSAPP) {
@@ -116,9 +118,9 @@ export class CreateTemplateHandler {
 
     return this.prisma.messageTemplate.upsert({
       where: {
-        organizationId_channelCode_name_language: {
+        organizationId_communicationAccountId_name_language: {
           organizationId: cmd.organizationId,
-          channelCode: account.channelCode,
+          communicationAccountId: account.id,
           name: created.name,
           language: created.language,
         },
@@ -126,6 +128,7 @@ export class CreateTemplateHandler {
       create: {
         id: this.identifiers.generate(),
         organizationId: cmd.organizationId,
+        communicationAccountId: account.id,
         channelCode: account.channelCode,
         name: created.name,
         language: created.language,
@@ -143,6 +146,7 @@ export class CreateTemplateHandler {
         providerTemplateId: created.providerTemplateId,
         deletedAt: null,
       },
+      include: accountInclude,
     });
   }
 }
@@ -173,9 +177,9 @@ export class SyncTemplatesHandler {
       const status = mapStatus(t.status);
       const row = await this.prisma.messageTemplate.upsert({
         where: {
-          organizationId_channelCode_name_language: {
+          organizationId_communicationAccountId_name_language: {
             organizationId,
-            channelCode: account.channelCode,
+            communicationAccountId: account.id,
             name: t.name,
             language: t.language,
           },
@@ -183,6 +187,7 @@ export class SyncTemplatesHandler {
         create: {
           id: this.identifiers.generate(),
           organizationId,
+          communicationAccountId: account.id,
           channelCode: account.channelCode,
           name: t.name,
           language: t.language,
@@ -200,8 +205,25 @@ export class SyncTemplatesHandler {
           providerTemplateId: t.providerTemplateId,
           deletedAt: null,
         },
+        include: accountInclude,
       });
       results.push(row);
+    }
+
+    // Soft-delete legacy rows (pre-account scoping) that match this sync.
+    if (synced.length > 0) {
+      await this.prisma.messageTemplate.updateMany({
+        where: {
+          organizationId,
+          communicationAccountId: null,
+          deletedAt: null,
+          OR: synced.map((t) => ({
+            name: t.name,
+            language: t.language,
+          })),
+        },
+        data: { deletedAt: new Date() },
+      });
     }
 
     return { synced: results.length, templates: results };
@@ -228,7 +250,8 @@ export class RefreshTemplateStatusHandler {
       throw new NotFoundError('MessageTemplate', templateId);
     }
 
-    let accountId = communicationAccountId;
+    let accountId =
+      communicationAccountId || template.communicationAccountId || undefined;
     if (!accountId) {
       const account = await this.prisma.communicationAccount.findFirst({
         where: {
@@ -272,6 +295,7 @@ export class RefreshTemplateStatusHandler {
     return this.prisma.messageTemplate.update({
       where: { id: template.id },
       data: {
+        communicationAccountId: accountId,
         status: mapStatus(remote.status),
         category: mapCategory(remote.category),
         body: remote.body || template.body,
@@ -281,9 +305,21 @@ export class RefreshTemplateStatusHandler {
         providerTemplateId:
           remote.providerTemplateId || template.providerTemplateId,
       },
+      include: accountInclude,
     });
   }
 }
+
+const accountInclude = {
+  communicationAccount: {
+    select: {
+      id: true,
+      name: true,
+      phoneNumber: true,
+      connectionStatus: true,
+    },
+  },
+} as const;
 
 async function loadProviderAccount(
   prisma: PrismaService,

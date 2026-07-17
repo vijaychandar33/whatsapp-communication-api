@@ -227,13 +227,11 @@ export class CreateTemplateDto {
   @IsEnum(TemplateStatus)
   status?: TemplateStatus;
 
-  @ApiPropertyOptional({
-    description:
-      'WhatsApp account used to submit the template to Meta. Required unless draftOnly=true.',
+  @ApiProperty({
+    description: 'WhatsApp account this template belongs to / is submitted on.',
   })
-  @IsOptional()
   @IsUUID()
-  communicationAccountId?: string;
+  communicationAccountId!: string;
 
   @ApiPropertyOptional({
     description: 'Save locally only; do not submit to Meta.',

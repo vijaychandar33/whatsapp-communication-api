@@ -11,6 +11,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
+import { AccountBadge } from '../components/ui/AccountBadge';
 import { Badge, statusTone } from '../components/ui/Badge';
 import { formatDate } from '../lib/utils';
 
@@ -138,6 +139,9 @@ export function BroadcastsPage() {
                   onClick={() => navigate(`/broadcasts/${row.id}`)}
                 >
                   <div className="font-medium text-slate-900">{row.name}</div>
+                  <div className="mt-0.5">
+                    <AccountBadge account={row.communicationAccount} />
+                  </div>
                   <div className="text-xs text-slate-500">
                     {row.templateName} · {row.audienceType} ·{' '}
                     {row.totalCount ?? 0} recipients · {formatDate(row.createdAt)}
@@ -425,16 +429,27 @@ function CreateBroadcastModal({
   });
 
   const templates = useQuery({
-    queryKey: ['templates', 'broadcast', orgId],
-    enabled: open && Boolean(orgId),
+    queryKey: ['templates', 'broadcast', orgId, accountId],
+    enabled: open && Boolean(orgId) && Boolean(accountId),
     queryFn: async () => {
       const { data } = await api.get<{ data: Template[] }>(
         '/admin/v1/templates',
-        { params: { organizationId: orgId, limit: 100 } },
+        {
+          params: {
+            organizationId: orgId,
+            limit: 100,
+            communicationAccountId: accountId,
+          },
+        },
       );
-      return Array.isArray(data.data) ? data.data : [];
+      const rows = Array.isArray(data.data) ? data.data : [];
+      return rows.filter((t) => (t.status || '').toUpperCase() === 'APPROVED');
     },
   });
+
+  useEffect(() => {
+    setTemplateName('');
+  }, [accountId]);
 
   const tags = useQuery({
     queryKey: ['tags', orgId],

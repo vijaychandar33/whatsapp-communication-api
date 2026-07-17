@@ -12,6 +12,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
+import { AccountBadge } from '../components/ui/AccountBadge';
 import { cn, formatDate } from '../lib/utils';
 
 type Tag = { id: string; name: string; color?: string };
@@ -26,6 +27,11 @@ type Contact = {
   createdAt?: string;
   tags?: Tag[];
   notes?: { id: string; noteText: string; createdAt?: string }[];
+  whatsappAccounts?: {
+    id: string;
+    name?: string | null;
+    phoneNumber?: string | null;
+  }[];
 };
 
 const schema = z.object({
@@ -273,6 +279,11 @@ export function ContactsPage() {
                       {row.phoneNumber || '—'}
                       {row.company ? ` · ${row.company}` : ''}
                     </div>
+                    {(row.whatsappAccounts || []).length > 0 ? (
+                      <div className="mt-1">
+                        <AccountBadge account={row.whatsappAccounts} />
+                      </div>
+                    ) : null}
                     {row.tags && row.tags.length > 0 ? (
                       <div className="mt-1 flex flex-wrap gap-1">
                         {row.tags.map((t) => (
@@ -343,6 +354,16 @@ export function ContactsPage() {
                     {detail.data?.email || 'No email'}
                     {detail.data?.company ? ` · ${detail.data.company}` : ''}
                   </p>
+                  <div className="mt-2">
+                    <div className="mb-1 text-xs font-semibold uppercase text-slate-400">
+                      WhatsApp accounts
+                    </div>
+                    <AccountBadge
+                      account={
+                        (detail.data as Contact | undefined)?.whatsappAccounts
+                      }
+                    />
+                  </div>
                 </div>
 
                 <div>

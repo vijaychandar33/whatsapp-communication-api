@@ -41,8 +41,14 @@ export class TemplatesController {
     @Query() pagination: PaginationDto,
     @Query('organizationId') organizationId: string,
     @Query('channelCode') channelCode?: ChannelCode,
+    @Query('communicationAccountId') communicationAccountId?: string,
   ) {
-    return this.listTemplates.execute(organizationId, pagination, channelCode);
+    return this.listTemplates.execute(
+      organizationId,
+      pagination,
+      channelCode,
+      communicationAccountId,
+    );
   }
 
   @Post()

@@ -14,6 +14,7 @@ import { Modal } from '../components/ui/Modal';
 import { Table, THead, TBody, TR, TH, TD } from '../components/ui/Table';
 import { Pagination } from '../components/ui/Pagination';
 import { EmptyState } from '../components/ui/EmptyState';
+import { AccountBadge } from '../components/ui/AccountBadge';
 import { Badge, statusTone } from '../components/ui/Badge';
 import { cn, fieldControlClass, fieldLabelClass, formatDate, truncate } from '../lib/utils';
 
@@ -28,6 +29,11 @@ type Message = {
   createdAt?: string;
   providerMessageId?: string;
   contact?: { displayName?: string; phoneNumber?: string };
+  communicationAccount?: {
+    id: string;
+    name?: string | null;
+    phoneNumber?: string | null;
+  } | null;
 };
 
 type Account = {
@@ -86,24 +92,30 @@ export function MessagesPage() {
     },
   });
 
-  const templates = useQuery({
-    queryKey: ['templates', 'send-picker', orgId],
-    enabled: Boolean(orgId) && open,
-    queryFn: async () => {
-      const { data } = await api.get<{ data: Template[] }>('/admin/v1/templates', {
-        params: { organizationId: orgId, limit: 100 },
-      });
-      const rows = Array.isArray(data.data) ? data.data : [];
-      return rows.filter((t) => (t.status || '').toUpperCase() === 'APPROVED');
-    },
-  });
-
   const form = useForm<SendValues>({
     resolver: zodResolver(sendSchema),
     defaultValues: {
       communicationAccountId: '',
       to: '',
       templateId: '',
+    },
+  });
+
+  const selectedAccountId = form.watch('communicationAccountId');
+
+  const templates = useQuery({
+    queryKey: ['templates', 'send-picker', orgId, selectedAccountId],
+    enabled: Boolean(orgId) && open && Boolean(selectedAccountId),
+    queryFn: async () => {
+      const { data } = await api.get<{ data: Template[] }>('/admin/v1/templates', {
+        params: {
+          organizationId: orgId,
+          limit: 100,
+          communicationAccountId: selectedAccountId,
+        },
+      });
+      const rows = Array.isArray(data.data) ? data.data : [];
+      return rows.filter((t) => (t.status || '').toUpperCase() === 'APPROVED');
     },
   });
 
@@ -117,6 +129,10 @@ export function MessagesPage() {
     const first = accounts.data?.find((a) => a.connectionStatus === 'CONNECTED');
     if (first) form.setValue('communicationAccountId', first.id);
   }, [accounts.data, form]);
+
+  useEffect(() => {
+    form.setValue('templateId', '');
+  }, [selectedAccountId, form]);
 
   const send = useMutation({
     mutationFn: async (values: SendValues) => {
@@ -191,6 +207,7 @@ export function MessagesPage() {
             <THead>
               <TR>
                 <TH>Status</TH>
+                <TH>Account</TH>
                 <TH>Type</TH>
                 <TH>Direction</TH>
                 <TH>Contact</TH>
@@ -207,6 +224,9 @@ export function MessagesPage() {
                     ) : (
                       '—'
                     )}
+                  </TD>
+                  <TD>
+                    <AccountBadge account={row.communicationAccount} />
                   </TD>
                   <TD>{row.messageType || '—'}</TD>
                   <TD className="capitalize">{row.direction || '—'}</TD>
@@ -303,7 +323,8 @@ export function MessagesPage() {
             ) : null}
             {templates.isSuccess && (templates.data || []).length === 0 ? (
               <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
-                No APPROVED templates yet. Create/sync one under Templates first.
+                No APPROVED templates for this WhatsApp account. Sync/create under
+                Templates for the selected account.
               </p>
             ) : null}
           </div>
