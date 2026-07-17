@@ -14,6 +14,10 @@ concurrency:
   group: coolify-production
   cancel-in-progress: false
 
+env:
+  COOLIFY_URL: http://74.225.185.16:8000
+  COOLIFY_APP_UUID: uaakcbe6tb68ol5bb6x0fqyr
+
 jobs:
   deploy:
     name: Trigger Coolify deploy
@@ -21,16 +25,14 @@ jobs:
     timeout-minutes: 35
 
     steps:
-      - name: Queue Coolify deployment
+      - name: Deploy to Coolify
         env:
-          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
-          COOLIFY_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
         run: |
           set -euo pipefail
 
-          if [ -z "${COOLIFY_URL:-}" ] || [ -z "${COOLIFY_TOKEN:-}" ] || [ -z "${COOLIFY_APP_UUID:-}" ]; then
-            echo "Missing GitHub secrets: COOLIFY_URL, COOLIFY_TOKEN, COOLIFY_APP_UUID"
+          if [ -z "${COOLIFY_TOKEN:-}" ]; then
+            echo "Missing GitHub secret: COOLIFY_TOKEN"
             exit 1
           fi
 
@@ -58,32 +60,8 @@ jobs:
           fi
 
           echo "Deployment queued: ${deployment_uuid}"
-
-      - name: Wait for deployment result
-        env:
-          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
-          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
-          COOLIFY_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
-        run: |
-          set -euo pipefail
-          COOLIFY_URL="${COOLIFY_URL%/}"
-
-          deployment_uuid="$(curl -fsS \
-            -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
-            "${COOLIFY_URL}/api/v1/deployments?uuid=${COOLIFY_APP_UUID}" \
-            | python3 -c "
-          import json, sys
-          data = json.load(sys.stdin)
-          items = data if isinstance(data, list) else data.get('data', [])
-          print(items[0]['uuid'] if items else '')
-          ")"
-
-          if [ -z "$deployment_uuid" ]; then
-            echo "No deployment found to poll"
-            exit 0
-          fi
-
           echo "Polling deployment ${deployment_uuid}..."
+
           for i in $(seq 1 90); do
             status="$(curl -fsS \
               -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
@@ -94,7 +72,7 @@ jobs:
 
             case "$status" in
               finished|success)
-                echo "Deploy succeeded"
+                echo "Deploy succeeded — live at http://uaakcbe6tb68ol5bb6x0fqyr.74.225.185.16.sslip.io"
                 exit 0
                 ;;
               failed|error|cancelled)
