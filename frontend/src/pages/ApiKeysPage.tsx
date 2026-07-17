@@ -1,21 +1,26 @@
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
-import { z } from 'zod';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, getErrorMessage } from '../lib/api';
-import { listErrorMessage, usePaginatedList } from '../hooks/usePaginatedList';
 import { useAuth } from '../hooks/useAuth';
+import { useCan } from '../hooks/useCan';
 import { PageHeader } from '../components/ui/PageHeader';
-import { Card, CardContent } from '../components/ui/Card';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
-import { Table, THead, TBody, TR, TH, TD } from '../components/ui/Table';
-import { Pagination } from '../components/ui/Pagination';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Badge, statusTone } from '../components/ui/Badge';
 import { formatDate } from '../lib/utils';
+
+const API_SCOPES = [
+  'messages:send',
+  'messages:read',
+  'contacts:read',
+  'contacts:write',
+  'conversations:read',
+  'webhooks:manage',
+  'broadcasts:send',
+] as const;
 
 type ApiKeyRow = {
   id: string;
@@ -23,119 +28,169 @@ type ApiKeyRow = {
   keyPrefix?: string;
   status?: string;
   scopes?: string[];
+  lastUsedAt?: string | null;
+  expiresAt?: string | null;
+  revokedAt?: string | null;
   createdAt?: string;
   key?: string;
 };
 
-const schema = z.object({
-  organizationId: z.string().uuid('Organization ID required'),
-  name: z.string().min(2),
-  scopes: z.string().optional(),
-});
-
-type FormValues = z.infer<typeof schema>;
-
 export function ApiKeysPage() {
   const { user } = useAuth();
-  const orgId = user?.organizationId || '';
-  const [page, setPage] = useState(1);
+  const orgId = user?.organizationId;
+  const { canManageMembers: canManage } = useCan();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
-  const queryClient = useQueryClient();
+  const [name, setName] = useState('');
+  const [scopes, setScopes] = useState<string[]>([
+    'messages:send',
+    'messages:read',
+  ]);
+  const [expiresInDays, setExpiresInDays] = useState('');
 
-  const list = usePaginatedList<ApiKeyRow>({
+  const list = useQuery({
     queryKey: ['api-keys', orgId],
-    path: '/admin/v1/api-keys',
-    page,
-    params: { organizationId: orgId },
-    enabled: Boolean(orgId),
-  });
-
-  const form = useForm<FormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      organizationId: orgId,
-      name: '',
-      scopes: '',
+    enabled: Boolean(orgId) && canManage,
+    queryFn: async () => {
+      const { data } = await api.get<{ data: ApiKeyRow[] }>(
+        '/admin/v1/api-keys',
+        { params: { organizationId: orgId, limit: 50 } },
+      );
+      return Array.isArray(data.data) ? data.data : [];
     },
   });
 
   const create = useMutation({
-    mutationFn: async (values: FormValues) => {
-      const scopes = values.scopes
-        ? values.scopes.split(',').map((s) => s.trim()).filter(Boolean)
-        : [];
-      const { data } = await api.post<{ data: ApiKeyRow }>('/admin/v1/api-keys', {
-        organizationId: values.organizationId,
-        name: values.name,
-        scopes,
-      });
+    mutationFn: async () => {
+      const { data } = await api.post<{ data: ApiKeyRow }>(
+        '/admin/v1/api-keys',
+        {
+          organizationId: orgId,
+          name,
+          scopes,
+          expiresInDays: expiresInDays ? Number(expiresInDays) : undefined,
+        },
+      );
       return data.data;
     },
     onSuccess: async (result) => {
       if (result.key) setCreatedKey(result.key);
-      form.reset({ organizationId: orgId, name: '', scopes: '' });
+      setName('');
+      setExpiresInDays('');
       await queryClient.invalidateQueries({ queryKey: ['api-keys'] });
     },
   });
+
+  const revoke = useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/admin/v1/api-keys/${id}`, {
+        params: { organizationId: orgId },
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['api-keys'] });
+    },
+  });
+
+  if (!orgId) {
+    return (
+      <div>
+        <PageHeader
+          title="API Keys"
+          description="Developer keys for the public WhatsApp API."
+        />
+        <EmptyState
+          title="Organization required"
+          description="Sign in with a user that has an organization context."
+        />
+      </div>
+    );
+  }
+
+  if (!canManage) {
+    return (
+      <div>
+        <PageHeader
+          title="API Keys"
+          description="Developer keys for the public WhatsApp API."
+        />
+        <EmptyState
+          title="Admin only"
+          description="API keys require admin role or higher."
+        />
+      </div>
+    );
+  }
 
   return (
     <div>
       <PageHeader
         title="API Keys"
-        description="Developer keys for the public Communication API."
-        actions={<Button onClick={() => setOpen(true)}>Create API key</Button>}
+        description="Developer keys for the public WhatsApp API."
+        actions={
+          <Button
+            onClick={() => {
+              setOpen(true);
+              setCreatedKey(null);
+            }}
+          >
+            Create key
+          </Button>
+        }
       />
 
       <Card>
-        {!orgId ? (
-          <EmptyState
-            title="Organization required"
-            description="Sign in with a user that has an organization context."
-          />
-        ) : list.isError ? (
-          <EmptyState title="Could not load API keys" description={listErrorMessage(list.error)} />
-        ) : list.isLoading ? (
-          <EmptyState title="Loading API keys…" />
-        ) : !list.data?.items.length ? (
-          <EmptyState title="No API keys yet" description="Create a key for integrations." />
-        ) : (
-          <Table>
-            <THead>
-              <TR>
-                <TH>Name</TH>
-                <TH>Prefix</TH>
-                <TH>Scopes</TH>
-                <TH>Status</TH>
-                <TH>Created</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {list.data.items.map((row) => (
-                <TR key={row.id}>
-                  <TD className="font-medium text-slate-900">{row.name}</TD>
-                  <TD className="font-mono text-xs">{row.keyPrefix || '—'}</TD>
-                  <TD>{row.scopes?.join(', ') || '—'}</TD>
-                  <TD>
-                    {row.status ? (
-                      <Badge tone={statusTone(row.status)}>{row.status}</Badge>
-                    ) : (
-                      '—'
-                    )}
-                  </TD>
-                  <TD>{formatDate(row.createdAt)}</TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
-        )}
-
-        <Pagination
-          page={list.data?.meta.page || page}
-          totalPages={list.data?.meta.totalPages || 1}
-          total={list.data?.meta.total}
-          onChange={setPage}
-        />
+        <CardHeader>
+          <CardTitle>Keys</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {list.isError ? (
+            <EmptyState
+              title="Could not load API keys"
+              description={getErrorMessage(list.error)}
+            />
+          ) : list.isLoading ? (
+            <EmptyState title="Loading API keys…" />
+          ) : !(list.data || []).length ? (
+            <EmptyState
+              title="No API keys yet"
+              description="Create a key for integrations."
+            />
+          ) : (
+            (list.data || []).map((k) => (
+              <div
+                key={k.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm dark:border-slate-700"
+              >
+                <div>
+                  <div className="font-medium text-slate-900 dark:text-slate-100">
+                    {k.name}
+                  </div>
+                  <div className="font-mono text-xs text-slate-500">
+                    {k.keyPrefix}… ·{' '}
+                    {(k.scopes || []).join(', ') || 'no scopes'}
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    last used {formatDate(k.lastUsedAt || undefined)} · expires{' '}
+                    {formatDate(k.expiresAt || undefined)}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge tone={statusTone(k.status || '')}>{k.status}</Badge>
+                  {k.status === 'ACTIVE' ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() => revoke.mutate(k.id)}
+                    >
+                      Revoke
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ))
+          )}
+        </CardContent>
       </Card>
 
       <Modal
@@ -157,12 +212,19 @@ export function ApiKeysPage() {
             </Button>
           ) : (
             <>
-              <Button variant="secondary" onClick={() => setOpen(false)}>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setOpen(false);
+                  setCreatedKey(null);
+                }}
+              >
                 Cancel
               </Button>
               <Button
                 loading={create.isPending}
-                onClick={form.handleSubmit((values) => create.mutateAsync(values))}
+                disabled={!name.trim()}
+                onClick={() => create.mutate()}
               >
                 Create
               </Button>
@@ -171,35 +233,52 @@ export function ApiKeysPage() {
         }
       >
         {createdKey ? (
-          <div className="space-y-3">
+          <div className="space-y-2">
             <p className="text-sm text-slate-600">
-              Store this key securely. It will not be shown again.
+              Copy this key now — it will not be shown again.
             </p>
-            <CardContent className="rounded-md border border-teal-200 bg-accent-muted p-3 font-mono text-xs break-all text-teal-900">
+            <code className="block break-all rounded bg-slate-50 p-2 text-xs dark:bg-slate-800">
               {createdKey}
-            </CardContent>
+            </code>
           </div>
         ) : (
-          <form className="space-y-4">
-            <Input
-              label="Organization ID"
-              error={form.formState.errors.organizationId?.message}
-              {...form.register('organizationId')}
-            />
+          <div className="space-y-3">
             <Input
               label="Name"
-              error={form.formState.errors.name?.message}
-              {...form.register('name')}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
             />
             <Input
-              label="Scopes"
-              hint="Comma-separated, e.g. messages:send, contacts:read"
-              {...form.register('scopes')}
+              label="Expires in days (optional)"
+              type="number"
+              value={expiresInDays}
+              onChange={(e) => setExpiresInDays(e.target.value)}
             />
+            <div className="space-y-1">
+              <div className="text-sm font-medium">Scopes</div>
+              {API_SCOPES.map((s) => (
+                <label key={s} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={scopes.includes(s)}
+                    onChange={(e) => {
+                      setScopes((prev) =>
+                        e.target.checked
+                          ? [...prev, s]
+                          : prev.filter((x) => x !== s),
+                      );
+                    }}
+                  />
+                  {s}
+                </label>
+              ))}
+            </div>
             {create.isError ? (
-              <p className="text-sm text-red-600">{getErrorMessage(create.error)}</p>
+              <p className="text-sm text-red-600">
+                {getErrorMessage(create.error)}
+              </p>
             ) : null}
-          </form>
+          </div>
         )}
       </Modal>
     </div>

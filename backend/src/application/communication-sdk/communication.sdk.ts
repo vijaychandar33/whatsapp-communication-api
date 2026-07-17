@@ -136,9 +136,19 @@ export class CommunicationSdk {
         },
       });
 
+      const preview =
+        (input.body || '').trim().slice(0, 500) ||
+        (input.templateName
+          ? `[template:${input.templateName}]`
+          : messageType
+            ? `[${messageType}]`
+            : null);
       await tx.conversation.update({
         where: { id: conversation.id },
-        data: { lastMessageAt: this.clock.now() },
+        data: {
+          lastMessageAt: this.clock.now(),
+          lastMessageText: preview,
+        },
       });
 
       await this.outbox.write(

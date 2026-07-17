@@ -7,7 +7,10 @@ import {
   SendMessageJobPayload,
 } from './message-queue.service';
 
-@Processor(MESSAGE_QUEUE, { autorun: false })
+@Processor(MESSAGE_QUEUE, {
+  autorun: true,
+  limiter: { max: 10, duration: 1000 },
+})
 export class SendMessageProcessor extends WorkerHost {
   private readonly logger = new Logger(SendMessageProcessor.name);
 

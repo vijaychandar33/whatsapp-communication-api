@@ -1,5 +1,10 @@
 import { Module } from '@nestjs/common';
+import { BullModule } from '@nestjs/bullmq';
 import { CommunicationSdk } from '../application/communication-sdk/communication.sdk';
+import {
+  BROADCAST_QUEUE,
+  MESSAGE_QUEUE,
+} from '../infrastructure/queue/message-queue.service';
 import {
   CreateOrganizationHandler,
   CreateUserHandler,
@@ -18,7 +23,11 @@ import {
   UpdateContactHandler,
   DeleteContactHandler,
 } from '../application/commands/contact-handlers';
-import { PatchConversationHandler } from '../application/commands/conversation-handlers';
+import {
+  MarkConversationReadHandler,
+  PatchConversationHandler,
+} from '../application/commands/conversation-handlers';
+import { TagsService } from '../application/commands/tags.service';
 import {
   CreateTemplateHandler,
   SyncTemplatesHandler,
@@ -59,12 +68,18 @@ import {
   UsersController,
   RolesController,
   ApiKeysController,
+  InvitationsController,
 } from '../presentation/admin/v1/admin-crud.controller';
 import { AccountsController } from '../presentation/admin/v1/accounts.controller';
 import { AdminContactsController } from '../presentation/admin/v1/contacts.controller';
 import { ConversationsController } from '../presentation/admin/v1/conversations.controller';
+import {
+  ContactTagsNotesController,
+  TagsController,
+} from '../presentation/admin/v1/tags.controller';
 import { TemplatesController } from '../presentation/admin/v1/templates.controller';
 import { AdminMediaController } from '../presentation/admin/v1/media.controller';
+import { AdminMessagesController } from '../presentation/admin/v1/messages.controller';
 import {
   DashboardController,
   AnalyticsController,
@@ -79,20 +94,50 @@ import { ApiMediaController } from '../presentation/api/v1/media.controller';
 import { RealtimeGateway } from '../presentation/realtime/realtime.gateway';
 import { ApiKeyGuard } from '../presentation/guards/api-key.guard';
 import { JwtOrApiKeyGuard } from '../presentation/guards/jwt-or-api-key.guard';
+import { TenantScopeGuard } from '../presentation/guards/tenant-scope.guard';
+import { RolesGuard } from '../presentation/guards/roles.guard';
+import { OptionalJwtAuthGuard } from '../presentation/guards/optional-jwt-auth.guard';
+import { MembersService } from '../application/commands/members.service';
+import { BroadcastsService } from '../application/commands/broadcasts.service';
+import { BroadcastsController } from '../presentation/admin/v1/broadcasts.controller';
+import { AiService } from '../application/ai/ai.service';
+import { LlmClient } from '../application/ai/llm.client';
+import { AiController } from '../presentation/admin/v1/ai.controller';
+import { SendMessageProcessor } from '../infrastructure/queue/send-message.processor';
+import { BroadcastDeliveryProcessor } from '../infrastructure/queue/broadcast-delivery.processor';
 import { AuthModule } from './auth.module';
 
+const hasRedis = Boolean(process.env.REDIS_URL);
+const queueProcessors = hasRedis
+  ? [SendMessageProcessor, BroadcastDeliveryProcessor]
+  : [];
+const queueImports = hasRedis
+  ? [
+      BullModule.registerQueue(
+        { name: MESSAGE_QUEUE },
+        { name: BROADCAST_QUEUE },
+      ),
+    ]
+  : [];
+
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, ...queueImports],
   controllers: [
     OrganizationsController,
     UsersController,
     RolesController,
     ApiKeysController,
+    InvitationsController,
     AccountsController,
     AdminContactsController,
     ConversationsController,
+    TagsController,
+    ContactTagsNotesController,
     TemplatesController,
     AdminMediaController,
+    AdminMessagesController,
+    BroadcastsController,
+    AiController,
     DashboardController,
     AnalyticsController,
     AuditController,
@@ -105,6 +150,9 @@ import { AuthModule } from './auth.module';
   ],
   providers: [
     CommunicationSdk,
+    BroadcastsService,
+    AiService,
+    LlmClient,
     CreateOrganizationHandler,
     CreateUserHandler,
     CreateRoleHandler,
@@ -118,6 +166,8 @@ import { AuthModule } from './auth.module';
     UpdateContactHandler,
     DeleteContactHandler,
     PatchConversationHandler,
+    MarkConversationReadHandler,
+    TagsService,
     CreateTemplateHandler,
     SyncTemplatesHandler,
     UploadMediaHandler,
@@ -147,8 +197,13 @@ import { AuthModule } from './auth.module';
     GetAnalyticsHandler,
     ApiKeyGuard,
     JwtOrApiKeyGuard,
+    TenantScopeGuard,
+    RolesGuard,
+    OptionalJwtAuthGuard,
+    MembersService,
     RealtimeGateway,
+    ...queueProcessors,
   ],
-  exports: [CommunicationSdk],
+  exports: [CommunicationSdk, BroadcastsService, AiService],
 })
 export class CommunicationModule {}

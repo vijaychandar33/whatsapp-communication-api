@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../guards/jwt-auth.guard';
+import { TenantScopeGuard } from '../../guards/tenant-scope.guard';
 import { PaginationDto } from '../../dto/pagination.dto';
 import {
   CreateContactHandler,
@@ -25,7 +26,7 @@ import { CreateContactDto, UpdateContactDto } from './dto/resources.dto';
 
 @ApiTags('Admin Contacts')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, TenantScopeGuard)
 @Controller('admin/v1/contacts')
 export class AdminContactsController {
   constructor(
@@ -40,8 +41,10 @@ export class AdminContactsController {
   async list(
     @Query() pagination: PaginationDto,
     @Query('organizationId') organizationId: string,
+    @Query('q') q?: string,
+    @Query('tagId') tagId?: string,
   ) {
-    return this.listContacts.execute(organizationId, pagination);
+    return this.listContacts.execute(organizationId, pagination, { q, tagId });
   }
 
   @Post()

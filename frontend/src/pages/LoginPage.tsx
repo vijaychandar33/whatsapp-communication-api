@@ -1,7 +1,7 @@
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -40,14 +40,16 @@ export function LoginPage() {
   });
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
+    <div className="flex min-h-screen items-center justify-center bg-[#fafafa] px-4 dark:bg-zinc-950">
       <div className="w-full max-w-md">
         <div className="mb-6 text-center">
-          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">
-            Communication Platform
+          <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-zinc-500">
+            WhatsApp Admin
           </div>
-          <h1 className="mt-2 text-2xl font-semibold text-slate-900">Admin sign in</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+            Admin sign in
+          </h1>
+          <p className="mt-1 text-sm text-zinc-500">
             Use your operator credentials to manage the platform.
           </p>
         </div>
@@ -83,6 +85,15 @@ export function LoginPage() {
                 Sign in
               </Button>
             </form>
+            <p className="mt-4 text-center text-sm text-zinc-500">
+              New here?{' '}
+              <Link
+                to="/register"
+                className="font-medium text-zinc-950 underline-offset-2 hover:underline dark:text-zinc-50"
+              >
+                Create an account
+              </Link>
+            </p>
           </CardContent>
         </Card>
       </div>

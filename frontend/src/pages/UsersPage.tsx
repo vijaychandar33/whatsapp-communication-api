@@ -1,214 +1,313 @@
 import { useState } from 'react';
-import { useForm } from 'react-hook-form';
-import { z } from 'zod';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, getErrorMessage } from '../lib/api';
-import { listErrorMessage, usePaginatedList } from '../hooks/usePaginatedList';
 import { useAuth } from '../hooks/useAuth';
+import { useCan } from '../hooks/useCan';
 import { PageHeader } from '../components/ui/PageHeader';
-import { Card, CardContent } from '../components/ui/Card';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
-import { Table, THead, TBody, TR, TH, TD } from '../components/ui/Table';
-import { Pagination } from '../components/ui/Pagination';
 import { EmptyState } from '../components/ui/EmptyState';
-import { Badge, statusTone } from '../components/ui/Badge';
+import { Badge } from '../components/ui/Badge';
 import { formatDate } from '../lib/utils';
 
-type UserRow = {
+type Member = {
   id: string;
   email: string;
   firstName?: string | null;
   lastName?: string | null;
-  status?: string;
-  organizationId?: string;
+  workspaceRole?: string | null;
   createdAt?: string;
-  roles?: Array<{ role?: { name?: string } } | string>;
 };
-
-const schema = z.object({
-  organizationId: z.string().uuid('Organization ID required'),
-  email: z.string().email(),
-  password: z.string().min(8),
-  firstName: z.string().optional(),
-  lastName: z.string().optional(),
-});
-
-type FormValues = z.infer<typeof schema>;
-
-function roleNames(roles?: UserRow['roles']): string {
-  if (!roles?.length) return '—';
-  return roles
-    .map((r) => (typeof r === 'string' ? r : r.role?.name))
-    .filter(Boolean)
-    .join(', ') || '—';
-}
 
 export function UsersPage() {
   const { user } = useAuth();
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState('');
-  const [open, setOpen] = useState(false);
+  const orgId = user?.organizationId;
+  const { canManageMembers } = useCan();
   const queryClient = useQueryClient();
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [inviteRole, setInviteRole] = useState<'ADMIN' | 'AGENT' | 'VIEWER'>(
+    'AGENT',
+  );
+  const [inviteEmail, setInviteEmail] = useState('');
 
-  const list = usePaginatedList<UserRow>({
-    queryKey: ['users'],
-    path: '/admin/v1/users',
-    page,
-  });
-
-  const form = useForm<FormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      organizationId: user?.organizationId || '',
-      email: '',
-      password: '',
-      firstName: '',
-      lastName: '',
+  const members = useQuery({
+    queryKey: ['members', orgId],
+    enabled: Boolean(orgId),
+    queryFn: async () => {
+      const { data } = await api.get<{ data: Member[] }>('/admin/v1/users', {
+        params: { organizationId: orgId },
+      });
+      return Array.isArray(data.data) ? data.data : [];
     },
   });
 
-  const create = useMutation({
-    mutationFn: async (values: FormValues) => {
-      const { data } = await api.post('/admin/v1/users', values);
-      return data;
+  const invites = useQuery({
+    queryKey: ['invitations', orgId],
+    enabled: Boolean(orgId) && canManageMembers,
+    queryFn: async () => {
+      const { data } = await api.get<{
+        data: Array<{
+          id: string;
+          email?: string | null;
+          role: string;
+          expiresAt: string;
+        }>;
+      }>('/admin/v1/invitations', { params: { organizationId: orgId } });
+      return Array.isArray(data.data) ? data.data : [];
+    },
+  });
+
+  const changeRole = useMutation({
+    mutationFn: async ({
+      id,
+      role,
+    }: {
+      id: string;
+      role: 'admin' | 'agent' | 'viewer';
+    }) => {
+      await api.patch(`/admin/v1/users/${id}/role`, { role });
     },
     onSuccess: async () => {
-      setOpen(false);
-      form.reset({
-        organizationId: user?.organizationId || '',
-        email: '',
-        password: '',
-        firstName: '',
-        lastName: '',
-      });
-      await queryClient.invalidateQueries({ queryKey: ['users'] });
+      await queryClient.invalidateQueries({ queryKey: ['members'] });
     },
   });
 
-  const items = (list.data?.items || []).filter((row) => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return (
-      row.email?.toLowerCase().includes(q) ||
-      row.firstName?.toLowerCase().includes(q) ||
-      row.lastName?.toLowerCase().includes(q)
-    );
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/admin/v1/users/${id}`);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['members'] });
+    },
   });
+
+  const createInvite = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post<{
+        data: { invitePath: string; token: string };
+      }>('/admin/v1/invitations', {
+        organizationId: orgId,
+        email: inviteEmail || undefined,
+        role: inviteRole,
+      });
+      return data.data;
+    },
+    onSuccess: async (result) => {
+      setInviteUrl(`${window.location.origin}${result.invitePath}`);
+      setInviteEmail('');
+      await queryClient.invalidateQueries({ queryKey: ['invitations'] });
+    },
+  });
+
+  const revokeInvite = useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/admin/v1/invitations/${id}`);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['invitations'] });
+    },
+  });
+
+  if (!orgId) {
+    return (
+      <div>
+        <PageHeader title="Users" description="Workspace members and invites." />
+        <EmptyState
+          title="Organization required"
+          description="Sign in with a user that has an organization context."
+        />
+      </div>
+    );
+  }
 
   return (
     <div>
       <PageHeader
         title="Users"
-        description="Operators and members with dashboard access."
-        actions={<Button onClick={() => setOpen(true)}>Create user</Button>}
+        description="Invite teammates and manage workspace roles."
+        actions={
+          canManageMembers ? (
+            <Button
+              onClick={() => {
+                setInviteOpen(true);
+                setInviteUrl(null);
+              }}
+            >
+              Invite
+            </Button>
+          ) : undefined
+        }
       />
 
-      <Card>
-        <CardContent className="border-b border-slate-100 py-4">
-          <Input
-            placeholder="Search by name or email…"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-          />
-        </CardContent>
-
-        {list.isError ? (
-          <EmptyState title="Could not load users" description={listErrorMessage(list.error)} />
-        ) : list.isLoading ? (
-          <EmptyState title="Loading users…" />
-        ) : items.length === 0 ? (
-          <EmptyState title="No users found" />
-        ) : (
-          <Table>
-            <THead>
-              <TR>
-                <TH>Email</TH>
-                <TH>Name</TH>
-                <TH>Roles</TH>
-                <TH>Status</TH>
-                <TH>Created</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {items.map((row) => (
-                <TR key={row.id}>
-                  <TD className="font-medium text-slate-900">{row.email}</TD>
-                  <TD>
-                    {[row.firstName, row.lastName].filter(Boolean).join(' ') || '—'}
-                  </TD>
-                  <TD>{roleNames(row.roles)}</TD>
-                  <TD>
-                    {row.status ? (
-                      <Badge tone={statusTone(row.status)}>{row.status}</Badge>
+      <div className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Members</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {members.isError ? (
+              <EmptyState
+                title="Could not load members"
+                description={getErrorMessage(members.error)}
+              />
+            ) : members.isLoading ? (
+              <EmptyState title="Loading members…" />
+            ) : !(members.data || []).length ? (
+              <EmptyState title="No members yet" />
+            ) : (
+              (members.data || []).map((m) => (
+                <div
+                  key={m.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm dark:border-slate-700"
+                >
+                  <div>
+                    <div className="font-medium text-slate-900 dark:text-slate-100">
+                      {[m.firstName, m.lastName].filter(Boolean).join(' ') ||
+                        m.email}
+                    </div>
+                    <div className="text-xs text-slate-500">{m.email}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {canManageMembers && m.workspaceRole !== 'owner' ? (
+                      <select
+                        className="rounded border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-900"
+                        value={m.workspaceRole || 'agent'}
+                        onChange={(e) =>
+                          changeRole.mutate({
+                            id: m.id,
+                            role: e.target.value as
+                              | 'admin'
+                              | 'agent'
+                              | 'viewer',
+                          })
+                        }
+                      >
+                        <option value="admin">admin</option>
+                        <option value="agent">agent</option>
+                        <option value="viewer">viewer</option>
+                      </select>
                     ) : (
-                      '—'
+                      <Badge>{m.workspaceRole || '—'}</Badge>
                     )}
-                  </TD>
-                  <TD>{formatDate(row.createdAt)}</TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
-        )}
+                    {canManageMembers && m.workspaceRole !== 'owner' ? (
+                      <Button
+                        variant="secondary"
+                        onClick={() => remove.mutate(m.id)}
+                      >
+                        Remove
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
 
-        <Pagination
-          page={list.data?.meta.page || page}
-          totalPages={list.data?.meta.totalPages || 1}
-          total={list.data?.meta.total}
-          onChange={setPage}
-        />
-      </Card>
+        {canManageMembers ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Pending invites</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {(invites.data || []).length === 0 ? (
+                <EmptyState title="No pending invites" />
+              ) : (
+                (invites.data || []).map((i) => (
+                  <div
+                    key={i.id}
+                    className="flex items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm dark:border-slate-700"
+                  >
+                    <div>
+                      {i.email || 'Open invite'} · {i.role} · expires{' '}
+                      {formatDate(i.expiresAt)}
+                    </div>
+                    <Button
+                      variant="secondary"
+                      onClick={() => revokeInvite.mutate(i.id)}
+                    >
+                      Revoke
+                    </Button>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
+      </div>
 
       <Modal
-        open={open}
-        title="Create user"
-        onClose={() => setOpen(false)}
+        open={inviteOpen}
+        title="Invite teammate"
+        onClose={() => {
+          setInviteOpen(false);
+          setInviteUrl(null);
+        }}
         footer={
-          <>
-            <Button variant="secondary" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
+          inviteUrl ? (
             <Button
-              loading={create.isPending}
-              onClick={form.handleSubmit((values) => create.mutateAsync(values))}
+              onClick={() => {
+                setInviteOpen(false);
+                setInviteUrl(null);
+              }}
             >
-              Create
+              Done
             </Button>
-          </>
+          ) : (
+            <>
+              <Button variant="secondary" onClick={() => setInviteOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                loading={createInvite.isPending}
+                onClick={() => createInvite.mutate()}
+              >
+                Create invite link
+              </Button>
+            </>
+          )
         }
       >
-        <form className="space-y-4">
-          <Input
-            label="Organization ID"
-            error={form.formState.errors.organizationId?.message}
-            {...form.register('organizationId')}
-          />
-          <Input
-            label="Email"
-            type="email"
-            error={form.formState.errors.email?.message}
-            {...form.register('email')}
-          />
-          <Input
-            label="Password"
-            type="password"
-            error={form.formState.errors.password?.message}
-            {...form.register('password')}
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="First name" {...form.register('firstName')} />
-            <Input label="Last name" {...form.register('lastName')} />
+        {inviteUrl ? (
+          <div className="space-y-2">
+            <p className="text-sm text-slate-600">
+              Copy this link now — it will not be shown again.
+            </p>
+            <code className="block break-all rounded bg-slate-50 p-2 text-xs dark:bg-slate-800">
+              {inviteUrl}
+            </code>
           </div>
-          {create.isError ? (
-            <p className="text-sm text-red-600">{getErrorMessage(create.error)}</p>
-          ) : null}
-        </form>
+        ) : (
+          <div className="space-y-3">
+            <Input
+              label="Email (optional)"
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+            />
+            <div>
+              <label className="mb-1 block text-sm font-medium">Role</label>
+              <select
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900"
+                value={inviteRole}
+                onChange={(e) =>
+                  setInviteRole(e.target.value as typeof inviteRole)
+                }
+              >
+                <option value="ADMIN">admin</option>
+                <option value="AGENT">agent</option>
+                <option value="VIEWER">viewer</option>
+              </select>
+            </div>
+            {createInvite.isError ? (
+              <p className="text-sm text-red-600">
+                {getErrorMessage(createInvite.error)}
+              </p>
+            ) : null}
+          </div>
+        )}
       </Modal>
     </div>
   );

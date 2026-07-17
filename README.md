@@ -63,9 +63,11 @@ docker compose -f Deployment/Local/docker-compose.yml up --build -d
 |---------|-----|
 | Admin UI | http://localhost:5173 |
 | API / Swagger | http://localhost:3000 / http://localhost:3000/docs |
+| Postgres (host) | localhost:5433 |
+| Redis (host) | localhost:6380 |
 | Login | `admin@local` / `Admin123!` |
 
-Compose runs migrations + seed on API start. Stack: postgres, redis, api, worker, frontend.
+Compose runs migrations + seed on API start. Stack: postgres, redis, api, worker, frontend. Host DB/Redis use **5433/6380** to avoid clashing with local Homebrew services.
 ## API surfaces
 
 | Audience | Base | Auth |

@@ -11,8 +11,12 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ConversationStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../../guards/jwt-auth.guard';
+import { TenantScopeGuard } from '../../guards/tenant-scope.guard';
 import { PaginationDto } from '../../dto/pagination.dto';
-import { PatchConversationHandler } from '../../../application/commands/conversation-handlers';
+import {
+  MarkConversationReadHandler,
+  PatchConversationHandler,
+} from '../../../application/commands/conversation-handlers';
 import {
   GetConversationHandler,
   ListConversationsHandler,
@@ -21,13 +25,14 @@ import { PatchConversationDto } from './dto/resources.dto';
 
 @ApiTags('Admin Conversations')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, TenantScopeGuard)
 @Controller('admin/v1/conversations')
 export class ConversationsController {
   constructor(
     private readonly listConversations: ListConversationsHandler,
     private readonly getConversation: GetConversationHandler,
     private readonly patchConversation: PatchConversationHandler,
+    private readonly markRead: MarkConversationReadHandler,
   ) {}
 
   @Get()
@@ -35,9 +40,15 @@ export class ConversationsController {
     @Query() pagination: PaginationDto,
     @Query('organizationId') organizationId: string,
     @Query('status') status?: ConversationStatus,
+    @Query('assignedToUserId') assignedToUserId?: string,
+    @Query('unreadOnly') unreadOnly?: string,
+    @Query('q') q?: string,
   ) {
     return this.listConversations.execute(organizationId, pagination, {
       status,
+      assignedToUserId,
+      unreadOnly: unreadOnly === 'true' || unreadOnly === '1',
+      q,
     });
   }
 
@@ -68,6 +79,17 @@ export class ConversationsController {
     };
   }
 
+  @Post(':id/read')
+  async read(
+    @Param('id') id: string,
+    @Query('organizationId') organizationId: string,
+  ) {
+    return {
+      data: await this.markRead.execute(organizationId, id),
+      message: 'Conversation marked read',
+    };
+  }
+
   @Post(':id/archive')
   async archive(
     @Param('id') id: string,
@@ -87,7 +109,7 @@ export class ConversationsController {
   async assign(
     @Param('id') id: string,
     @Query('organizationId') organizationId: string,
-    @Body() body: { assignedToUserId: string },
+    @Body() body: { assignedToUserId: string | null },
   ) {
     return {
       data: await this.patchConversation.execute({

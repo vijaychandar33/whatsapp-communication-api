@@ -15,6 +15,8 @@ export interface CreateContactCommand {
   phoneNumber?: string;
   email?: string;
   displayName?: string;
+  company?: string;
+  avatarUrl?: string;
   externalId?: string;
   metadata?: Record<string, unknown>;
 }
@@ -25,6 +27,8 @@ export interface UpdateContactCommand {
   phoneNumber?: string;
   email?: string;
   displayName?: string;
+  company?: string;
+  avatarUrl?: string;
   externalId?: string;
   metadata?: Record<string, unknown>;
 }
@@ -69,6 +73,8 @@ export class CreateContactHandler {
         phoneNumber,
         email,
         displayName: cmd.displayName,
+        company: cmd.company,
+        avatarUrl: cmd.avatarUrl,
         externalId: cmd.externalId,
         metadata: (cmd.metadata ?? {}) as Prisma.InputJsonValue,
       },
@@ -105,6 +111,8 @@ export class UpdateContactHandler {
         phoneNumber,
         email,
         displayName: cmd.displayName,
+        company: cmd.company,
+        avatarUrl: cmd.avatarUrl,
         externalId: cmd.externalId,
         metadata:
           cmd.metadata !== undefined

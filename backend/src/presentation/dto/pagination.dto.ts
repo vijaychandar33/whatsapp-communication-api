@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class PaginationDto {
@@ -17,6 +17,12 @@ export class PaginationDto {
   @Min(1)
   @Max(100)
   limit?: number = 20;
+
+  /** Injected by TenantScopeGuard; optional on list endpoints. */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  organizationId?: string;
 
   get skip(): number {
     return ((this.page ?? 1) - 1) * (this.limit ?? 20);

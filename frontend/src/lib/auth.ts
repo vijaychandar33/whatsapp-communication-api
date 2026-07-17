@@ -6,8 +6,12 @@ export type AuthUser = {
   id: string;
   email: string;
   organizationId: string;
-  organization?: { id: string; name: string; slug: string };
+  organization?: { id: string; name: string; slug: string; type?: string };
   roles?: string[];
+  workspaceRole?: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  avatarUrl?: string | null;
 };
 
 export function getAccessToken(): string | null {

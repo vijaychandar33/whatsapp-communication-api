@@ -7,6 +7,7 @@ import {
   IsUUID,
   IsUrl,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
@@ -118,6 +119,16 @@ export class CreateContactDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  company?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  avatarUrl?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
   externalId?: string;
 
   @ApiPropertyOptional()
@@ -145,6 +156,16 @@ export class UpdateContactDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  company?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  avatarUrl?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
   externalId?: string;
 
   @ApiPropertyOptional()
@@ -159,10 +180,11 @@ export class PatchConversationDto {
   @IsEnum(ConversationStatus)
   status?: ConversationStatus;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ nullable: true })
   @IsOptional()
+  @ValidateIf((_, v) => v !== null)
   @IsUUID()
-  assignedToUserId?: string;
+  assignedToUserId?: string | null;
 
   @ApiPropertyOptional()
   @IsOptional()

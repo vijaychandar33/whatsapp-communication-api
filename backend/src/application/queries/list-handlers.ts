@@ -151,6 +151,7 @@ export class ListApiKeysHandler {
           scopes: true,
           lastUsedAt: true,
           expiresAt: true,
+          revokedAt: true,
           createdAt: true,
         },
       }),
@@ -171,14 +172,32 @@ export class ListApiKeysHandler {
 export class ListMessagesHandler {
   constructor(private readonly prisma: PrismaService) {}
 
-  async execute(organizationId: string, pagination: PaginationDto) {
-    const where = { organizationId };
+  async execute(
+    organizationId: string,
+    pagination: PaginationDto,
+    filters?: { conversationId?: string },
+  ) {
+    const where = {
+      organizationId,
+      ...(filters?.conversationId
+        ? { conversationId: filters.conversationId }
+        : {}),
+    };
     const [items, total] = await Promise.all([
       this.prisma.message.findMany({
         where,
         skip: pagination.skip,
         take: pagination.take,
         orderBy: { createdAt: 'desc' },
+        include: {
+          contact: {
+            select: {
+              id: true,
+              displayName: true,
+              phoneNumber: true,
+            },
+          },
+        },
       }),
       this.prisma.message.count({ where }),
     ]);

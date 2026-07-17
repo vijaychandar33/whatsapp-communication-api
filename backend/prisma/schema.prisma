@@ -66,6 +66,7 @@ enum MessageStatus {
 
 enum ConversationStatus {
   OPEN
+  PENDING
   CLOSED
   ARCHIVED
 }
@@ -108,6 +109,45 @@ enum OutboxStatus {
   DEAD
 }
 
+enum BroadcastStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum BroadcastAudienceType {
+  ALL
+  TAGS
+  CONTACTS
+  MANUAL
+}
+
+enum BroadcastRecipientStatus {
+  PENDING
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  SKIPPED
+  CANCELLED
+}
+
+enum AiProviderCode {
+  OPENAI
+  ANTHROPIC
+}
+
+enum AiUsageMode {
+  DRAFT
+  AUTO_REPLY
+  PLAYGROUND
+  TEST
+}
+
 enum IdempotencyStatus {
   IN_PROGRESS
   COMPLETED
@@ -120,6 +160,12 @@ enum LogLevel {
   WARN
   ERROR
   FATAL
+}
+
+enum InvitationRole {
+  ADMIN
+  AGENT
+  VIEWER
 }
 
 // ─── Identity & Access ───────────────────────────────────────────────────────
@@ -138,6 +184,7 @@ model Organization {
   users                 User[]
   roles                 Role[]
   apiKeys               ApiKey[]
+  invitations           Invitation[]
   settings              OrganizationSettings?
   auditLogs             AuditLog[]
   communicationAccounts CommunicationAccount[]
@@ -152,6 +199,11 @@ model Organization {
   idempotencyRecords    IdempotencyRecord[]
   analyticsDailyStats   AnalyticsDailyStat[]
   featureFlags          FeatureFlag[]
+  tags                  Tag[]
+  broadcasts            Broadcast[]
+  aiConfig              AiConfig?
+  knowledgeDocuments    KnowledgeDocument[]
+  aiUsageLogs           AiUsageLog[]
 
   @@map("organizations")
 }
@@ -163,17 +215,20 @@ model User {
   passwordHash   String     @map("password_hash")
   firstName      String?    @map("first_name")
   lastName       String?    @map("last_name")
+  avatarUrl      String?    @map("avatar_url")
   status         UserStatus @default(ACTIVE)
   lastLoginAt    DateTime?  @map("last_login_at")
   createdAt      DateTime   @default(now()) @map("created_at")
   updatedAt      DateTime   @updatedAt @map("updated_at")
   deletedAt      DateTime?  @map("deleted_at")
 
-  organization  Organization     @relation(fields: [organizationId], references: [id])
-  roles         UserRole[]
-  refreshTokens RefreshToken[]
-  preferences   UserPreferences?
-  auditLogs     AuditLog[]
+  organization        Organization     @relation(fields: [organizationId], references: [id])
+  roles               UserRole[]
+  refreshTokens       RefreshToken[]
+  preferences         UserPreferences?
+  auditLogs           AuditLog[]
+  invitationsCreated  Invitation[]     @relation("InvitationCreator")
+  invitationsAccepted Invitation[]     @relation("InvitationAcceptor")
 
   @@unique([organizationId, email])
   @@index([email])
@@ -240,6 +295,8 @@ model RefreshToken {
   tokenHash String    @map("token_hash")
   expiresAt DateTime  @map("expires_at")
   revokedAt DateTime? @map("revoked_at")
+  userAgent String?   @map("user_agent")
+  ipAddress String?   @map("ip_address")
   createdAt DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -247,6 +304,28 @@ model RefreshToken {
   @@index([userId])
   @@index([tokenHash])
   @@map("refresh_tokens")
+}
+
+model Invitation {
+  id               String         @id @default(uuid())
+  organizationId   String         @map("organization_id")
+  email            String?
+  role             InvitationRole @default(AGENT)
+  tokenHash        String         @unique @map("token_hash")
+  label            String?
+  createdByUserId  String         @map("created_by_user_id")
+  expiresAt        DateTime       @map("expires_at")
+  acceptedAt       DateTime?      @map("accepted_at")
+  acceptedByUserId String?        @map("accepted_by_user_id")
+  revokedAt        DateTime?      @map("revoked_at")
+  createdAt        DateTime       @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  createdBy    User         @relation("InvitationCreator", fields: [createdByUserId], references: [id])
+  acceptedBy   User?        @relation("InvitationAcceptor", fields: [acceptedByUserId], references: [id])
+
+  @@index([organizationId])
+  @@map("invitations")
 }
 
 model ApiKey {
@@ -372,6 +451,7 @@ model CommunicationAccount {
   messages     Message[]
   media        Media[]
   webhookEvents WebhookEvent[]
+  broadcasts   Broadcast[]
 
   @@index([organizationId, channelCode])
   @@map("communication_accounts")
@@ -383,6 +463,8 @@ model Contact {
   phoneNumber    String?   @map("phone_number")
   email          String?
   displayName    String?   @map("display_name")
+  company        String?
+  avatarUrl      String?   @map("avatar_url")
   externalId     String?   @map("external_id")
   metadata       Json?
   createdAt      DateTime  @default(now()) @map("created_at")
@@ -392,10 +474,56 @@ model Contact {
   organization  Organization   @relation(fields: [organizationId], references: [id])
   conversations Conversation[]
   messages      Message[]
+  tags          ContactTag[]
+  notes         ContactNote[]
+  broadcastRecipients BroadcastRecipient[]
 
   @@unique([organizationId, phoneNumber])
   @@index([organizationId, email])
   @@map("contacts")
+}
+
+model Tag {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  color          String   @default("#64748b")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  contacts     ContactTag[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("tags")
+}
+
+model ContactTag {
+  contactId String @map("contact_id")
+  tagId     String @map("tag_id")
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, tagId])
+  @@map("contact_tags")
+}
+
+model ContactNote {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  contactId      String   @map("contact_id")
+  authorUserId   String?  @map("author_user_id")
+  noteText       String   @map("note_text")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@index([organizationId])
+  @@map("contact_notes")
 }
 
 model Conversation {
@@ -405,8 +533,15 @@ model Conversation {
   communicationAccountId String             @map("communication_account_id")
   channelCode            ChannelCode        @map("channel_code")
   status                 ConversationStatus @default(OPEN)
+  assignedToUserId       String?            @map("assigned_to_user_id")
+  isPinned               Boolean            @default(false) @map("is_pinned")
+  unreadCount            Int                @default(0) @map("unread_count")
+  lastMessageText        String?            @map("last_message_text")
   externalThreadId       String?            @map("external_thread_id")
   lastMessageAt          DateTime?          @map("last_message_at")
+  aiAutoreplyDisabled    Boolean            @default(false) @map("ai_autoreply_disabled")
+  aiReplyCount           Int                @default(0) @map("ai_reply_count")
+  aiHandoffSummary       String?            @map("ai_handoff_summary")
   metadata               Json?
   createdAt              DateTime           @default(now()) @map("created_at")
   updatedAt              DateTime           @updatedAt @map("updated_at")
@@ -418,6 +553,7 @@ model Conversation {
   messages               Message[]
 
   @@index([organizationId, status])
+  @@index([organizationId, assignedToUserId])
   @@index([contactId])
   @@map("conversations")
 }
@@ -442,6 +578,7 @@ model Message {
   sentAt                 DateTime?        @map("sent_at")
   deliveredAt            DateTime?        @map("delivered_at")
   readAt                 DateTime?        @map("read_at")
+  aiGenerated            Boolean          @default(false) @map("ai_generated")
   createdAt              DateTime         @default(now()) @map("created_at")
   updatedAt              DateTime         @updatedAt @map("updated_at")
 
@@ -643,4 +780,128 @@ model AnalyticsDailyStat {
 
   @@unique([organizationId, channelCode, date])
   @@map("analytics_daily_stats")
+}
+
+model Broadcast {
+  id                     String                @id @default(uuid())
+  organizationId         String                @map("organization_id")
+  communicationAccountId String                @map("communication_account_id")
+  createdByUserId        String?               @map("created_by_user_id")
+  name                   String
+  status                 BroadcastStatus       @default(DRAFT)
+  audienceType           BroadcastAudienceType @map("audience_type")
+  audienceFilter         Json?                 @map("audience_filter")
+  templateName           String                @map("template_name")
+  templateLanguage       String                @default("en") @map("template_language")
+  templateComponents     Json?                 @map("template_components")
+  scheduledAt            DateTime?             @map("scheduled_at")
+  startedAt              DateTime?             @map("started_at")
+  completedAt            DateTime?             @map("completed_at")
+  totalCount             Int                   @default(0) @map("total_count")
+  sentCount              Int                   @default(0) @map("sent_count")
+  deliveredCount         Int                   @default(0) @map("delivered_count")
+  readCount              Int                   @default(0) @map("read_count")
+  failedCount            Int                   @default(0) @map("failed_count")
+  skippedCount           Int                   @default(0) @map("skipped_count")
+  errorMessage           String?               @map("error_message")
+  createdAt              DateTime              @default(now()) @map("created_at")
+  updatedAt              DateTime              @updatedAt @map("updated_at")
+
+  organization           Organization         @relation(fields: [organizationId], references: [id])
+  communicationAccount   CommunicationAccount @relation(fields: [communicationAccountId], references: [id])
+  recipients             BroadcastRecipient[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+  @@map("broadcasts")
+}
+
+model BroadcastRecipient {
+  id          String                   @id @default(uuid())
+  broadcastId String                   @map("broadcast_id")
+  contactId   String?                  @map("contact_id")
+  phoneNumber String                   @map("phone_number")
+  status      BroadcastRecipientStatus @default(PENDING)
+  params      Json?
+  messageId   String?                  @map("message_id")
+  errorMessage String?                 @map("error_message")
+  sentAt      DateTime?                @map("sent_at")
+  deliveredAt DateTime?                @map("delivered_at")
+  readAt      DateTime?                @map("read_at")
+  createdAt   DateTime                 @default(now()) @map("created_at")
+  updatedAt   DateTime                 @updatedAt @map("updated_at")
+
+  broadcast Broadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  contact   Contact?  @relation(fields: [contactId], references: [id])
+
+  @@index([broadcastId, status])
+  @@index([messageId])
+  @@index([contactId])
+  @@map("broadcast_recipients")
+}
+
+model AiConfig {
+  id                          String         @id @default(uuid())
+  organizationId              String         @unique @map("organization_id")
+  provider                    AiProviderCode @default(OPENAI)
+  model                       String         @default("gpt-4o-mini")
+  apiKeyEnc                   String?        @map("api_key_enc")
+  systemPrompt                String?        @map("system_prompt")
+  isActive                    Boolean        @default(false) @map("is_active")
+  autoReplyEnabled            Boolean        @default(false) @map("auto_reply_enabled")
+  autoReplyMaxPerConversation Int            @default(3) @map("auto_reply_max_per_conversation")
+  handoffUserId               String?        @map("handoff_user_id")
+  createdAt                   DateTime       @default(now()) @map("created_at")
+  updatedAt                   DateTime       @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@map("ai_configs")
+}
+
+model KnowledgeDocument {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  title          String
+  content        String
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  chunks       KnowledgeChunk[]
+
+  @@index([organizationId])
+  @@map("knowledge_documents")
+}
+
+model KnowledgeChunk {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  documentId     String   @map("document_id")
+  chunkIndex     Int      @map("chunk_index")
+  content        String
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  document KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([documentId])
+  @@map("knowledge_chunks")
+}
+
+model AiUsageLog {
+  id               String      @id @default(uuid())
+  organizationId   String      @map("organization_id")
+  mode             AiUsageMode
+  provider         AiProviderCode
+  model            String
+  promptTokens     Int         @default(0) @map("prompt_tokens")
+  completionTokens Int         @default(0) @map("completion_tokens")
+  conversationId   String?     @map("conversation_id")
+  createdAt        DateTime    @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@map("ai_usage_logs")
 }

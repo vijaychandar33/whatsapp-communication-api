@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, getErrorMessage } from '../lib/api';
 import { listErrorMessage, usePaginatedList } from '../hooks/usePaginatedList';
+import { useAuth } from '../hooks/useAuth';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Card, CardContent } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -36,6 +37,8 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 
 export function OrganizationsPage() {
+  const { user } = useAuth();
+  const isSystem = user?.organization?.type === 'SYSTEM';
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
@@ -45,7 +48,7 @@ export function OrganizationsPage() {
     queryKey: ['organizations'],
     path: '/admin/v1/organizations',
     page,
-    params: search ? { search } : undefined,
+    scoped: false,
   });
 
   const form = useForm<FormValues>({
@@ -77,7 +80,9 @@ export function OrganizationsPage() {
         title="Organizations"
         description="Tenants and workspace accounts on the platform."
         actions={
-          <Button onClick={() => setOpen(true)}>Create organization</Button>
+          isSystem ? (
+            <Button onClick={() => setOpen(true)}>Create organization</Button>
+          ) : undefined
         }
       />
 

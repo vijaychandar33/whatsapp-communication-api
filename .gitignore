@@ -9,3 +9,4 @@ coverage/
 /storage/
 *.tsbuildinfo
 .vite/
+wacrm-main/

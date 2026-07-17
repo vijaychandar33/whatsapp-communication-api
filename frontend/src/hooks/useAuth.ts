@@ -4,12 +4,22 @@ import { api, getErrorMessage } from '../lib/api';
 import {
   AuthUser,
   clearAuth,
+  getRefreshToken,
   getStoredUser,
   isAuthenticated,
   setAuthSession,
 } from '../lib/auth';
 
 type LoginPayload = { email: string; password: string };
+
+type RegisterPayload = {
+  email: string;
+  password: string;
+  organizationName: string;
+  organizationSlug?: string;
+  firstName?: string;
+  lastName?: string;
+};
 
 type LoginResponse = {
   accessToken: string;
@@ -60,7 +70,30 @@ export function useAuth() {
     },
   });
 
-  const logout = useCallback(() => {
+  const registerMutation = useMutation({
+    mutationFn: async (payload: RegisterPayload) => {
+      const { data } = await api.post<{ data: LoginResponse }>(
+        '/admin/v1/auth/register',
+        payload,
+      );
+      return data.data;
+    },
+    onSuccess: (result) => {
+      setAuthSession(result.accessToken, result.refreshToken, result.user);
+      setUser(result.user);
+      queryClient.setQueryData(['auth', 'me'], result.user);
+    },
+  });
+
+  const logout = useCallback(async () => {
+    const refresh = getRefreshToken();
+    try {
+      if (refresh) {
+        await api.post('/admin/v1/auth/logout', { refreshToken: refresh });
+      }
+    } catch {
+      // ignore network errors on logout
+    }
     clearAuth();
     setUser(null);
     queryClient.clear();
@@ -76,6 +109,11 @@ export function useAuth() {
       loginError: loginMutation.error
         ? getErrorMessage(loginMutation.error, 'Login failed')
         : null,
+      register: registerMutation.mutateAsync,
+      registerLoading: registerMutation.isPending,
+      registerError: registerMutation.error
+        ? getErrorMessage(registerMutation.error, 'Registration failed')
+        : null,
       logout,
       meLoading: meQuery.isLoading,
     }),
@@ -85,6 +123,9 @@ export function useAuth() {
       loginMutation.mutateAsync,
       loginMutation.isPending,
       loginMutation.error,
+      registerMutation.mutateAsync,
+      registerMutation.isPending,
+      registerMutation.error,
       logout,
       meQuery.isLoading,
     ],

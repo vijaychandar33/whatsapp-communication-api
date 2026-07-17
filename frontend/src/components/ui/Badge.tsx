@@ -4,12 +4,12 @@ import { cn } from '../../lib/utils';
 type Tone = 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'teal';
 
 const tones: Record<Tone, string> = {
-  neutral: 'bg-slate-100 text-slate-700',
-  success: 'bg-emerald-50 text-emerald-700',
-  warning: 'bg-amber-50 text-amber-700',
-  danger: 'bg-red-50 text-red-700',
-  info: 'bg-sky-50 text-sky-700',
-  teal: 'bg-accent-muted text-teal-800',
+  neutral: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200',
+  success: 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900',
+  warning: 'bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100',
+  danger: 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300',
+  info: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200',
+  teal: 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-100',
 };
 
 export function Badge({
@@ -39,9 +39,6 @@ export function statusTone(status?: string): Tone {
   }
   if (['failed', 'error', 'revoked', 'blocked', 'closed', 'inactive'].includes(s)) {
     return 'danger';
-  }
-  if (['draft', 'paused', 'expired', 'warning'].includes(s)) {
-    return 'warning';
   }
   return 'neutral';
 }

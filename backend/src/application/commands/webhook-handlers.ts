@@ -5,6 +5,7 @@ import {
   MessageStatus,
   MessageType,
   Prisma,
+  BroadcastRecipientStatus,
 } from '@prisma/client';
 import {
   ConversationOpenedEvent,
@@ -19,6 +20,8 @@ import { SystemClock } from '../../infrastructure/clock/system-clock';
 import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { ChannelProviderRegistry } from '../../infrastructure/providers/channel-provider.registry';
 import { AesSecretService } from '../../infrastructure/secrets/secret.service';
+import { BroadcastsService } from './broadcasts.service';
+import { AiService } from '../ai/ai.service';
 
 export interface ProcessWebhookCommand {
   accountId: string;
@@ -38,6 +41,8 @@ export class ProcessWebhookHandler {
     private readonly outbox: OutboxService,
     private readonly registry: ChannelProviderRegistry,
     private readonly secrets: AesSecretService,
+    private readonly broadcasts: BroadcastsService,
+    private readonly ai: AiService,
   ) {}
 
   /**
@@ -206,6 +211,22 @@ export class ProcessWebhookHandler {
         tx,
       );
     });
+
+    const recipientStatus =
+      next === MessageStatus.SENT
+        ? BroadcastRecipientStatus.SENT
+        : next === MessageStatus.DELIVERED
+          ? BroadcastRecipientStatus.DELIVERED
+          : next === MessageStatus.READ
+            ? BroadcastRecipientStatus.READ
+            : next === MessageStatus.FAILED
+              ? BroadcastRecipientStatus.FAILED
+              : null;
+    if (recipientStatus) {
+      await this.broadcasts
+        .applyMessageStatus(message.id, recipientStatus)
+        .catch(() => undefined);
+    }
   }
 
   private async ingestInbound(
@@ -327,9 +348,20 @@ export class ProcessWebhookHandler {
         },
       });
 
+      const preview =
+        (event.body || '').trim().slice(0, 500) ||
+        (event.messageType ? `[${event.messageType}]` : null);
       await tx.conversation.update({
         where: { id: conversation!.id },
-        data: { lastMessageAt: this.clock.now() },
+        data: {
+          lastMessageAt: this.clock.now(),
+          lastMessageText: preview,
+          unreadCount: { increment: 1 },
+          ...(conversation!.status === 'CLOSED' ||
+          conversation!.status === 'ARCHIVED'
+            ? { status: 'OPEN' }
+            : {}),
+        },
       });
 
       await this.outbox.write(
@@ -363,6 +395,10 @@ export class ProcessWebhookHandler {
           tx,
         );
       }
+    });
+
+    setImmediate(() => {
+      void this.ai.tryAutoReply(account.organizationId, conversation!.id);
     });
   }
 

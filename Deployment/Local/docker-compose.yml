@@ -5,8 +5,9 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: communication_platform
+    # Host ports offset to avoid clashing with local Homebrew Postgres/Redis.
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -18,7 +19,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "6380:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -63,7 +64,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
-      start_period: 40s
+      start_period: 60s
 
   worker:
     build:

@@ -1,7 +1,11 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { api, getErrorMessage } from '../lib/api';
 import { listErrorMessage, usePaginatedList } from '../hooks/usePaginatedList';
+import { useAuth } from '../hooks/useAuth';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Card, CardContent } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Table, THead, TBody, TR, TH, TD } from '../components/ui/Table';
 import { Pagination } from '../components/ui/Pagination';
@@ -10,10 +14,10 @@ import { formatDate, truncate } from '../lib/utils';
 
 type MediaItem = {
   id: string;
-  filename?: string;
+  fileName?: string;
   mimeType?: string;
   sizeBytes?: number;
-  url?: string;
+  storageUrl?: string;
   createdAt?: string;
 };
 
@@ -25,21 +29,49 @@ function formatBytes(n?: number): string {
 }
 
 export function MediaPage() {
+  const { user } = useAuth();
+  const orgId = user?.organizationId || '';
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
 
   const list = usePaginatedList<MediaItem>({
-    queryKey: ['media'],
+    queryKey: ['media', orgId],
     path: '/admin/v1/media',
     page,
-    params: search ? { search } : undefined,
+  });
+
+  const upload = useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append('file', file);
+      const { data } = await api.post('/admin/v1/media/upload', form, {
+        params: { organizationId: orgId },
+      });
+      return data;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['media'] });
+    },
+  });
+
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/admin/v1/media/${id}`, {
+        params: { organizationId: orgId },
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['media'] });
+    },
   });
 
   const items = (list.data?.items || []).filter((m) => {
     if (!search) return true;
     const q = search.toLowerCase();
     return (
-      m.filename?.toLowerCase().includes(q) ||
+      m.fileName?.toLowerCase().includes(q) ||
       m.mimeType?.toLowerCase().includes(q) ||
       m.id.toLowerCase().includes(q)
     );
@@ -50,7 +82,31 @@ export function MediaPage() {
       <PageHeader
         title="Media"
         description="Uploaded assets referenced by messages and templates."
+        actions={
+          <>
+            <input
+              ref={fileRef}
+              type="file"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) upload.mutate(file);
+                e.target.value = '';
+              }}
+            />
+            <Button
+              loading={upload.isPending}
+              onClick={() => fileRef.current?.click()}
+            >
+              Upload
+            </Button>
+          </>
+        }
       />
+
+      {upload.isError ? (
+        <p className="mb-3 text-sm text-red-600">{getErrorMessage(upload.error)}</p>
+      ) : null}
 
       <Card>
         <CardContent className="border-b border-slate-100 py-4">
@@ -79,18 +135,30 @@ export function MediaPage() {
                 <TH>Size</TH>
                 <TH>URL</TH>
                 <TH>Created</TH>
+                <TH />
               </TR>
             </THead>
             <TBody>
               {items.map((row) => (
                 <TR key={row.id}>
                   <TD className="font-medium text-slate-900">
-                    {row.filename || row.id.slice(0, 8)}
+                    {row.fileName || row.id.slice(0, 8)}
                   </TD>
                   <TD>{row.mimeType || '—'}</TD>
                   <TD>{formatBytes(row.sizeBytes)}</TD>
-                  <TD className="font-mono text-xs">{truncate(row.url, 48)}</TD>
+                  <TD className="font-mono text-xs">
+                    {truncate(row.storageUrl, 48)}
+                  </TD>
                   <TD>{formatDate(row.createdAt)}</TD>
+                  <TD>
+                    <Button
+                      variant="secondary"
+                      loading={remove.isPending}
+                      onClick={() => remove.mutate(row.id)}
+                    >
+                      Delete
+                    </Button>
+                  </TD>
                 </TR>
               ))}
             </TBody>

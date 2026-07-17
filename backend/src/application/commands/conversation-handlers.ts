@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ConversationStatus, Prisma } from '@prisma/client';
+import { ConversationStatus } from '@prisma/client';
 import { NotFoundError } from '../../domain/errors';
 import { PrismaService } from '../../infrastructure/persistence/prisma/prisma.service';
 
@@ -25,24 +25,19 @@ export class PatchConversationHandler {
     });
     if (!conversation) throw new NotFoundError('Conversation', cmd.id);
 
-    const metadata = {
-      ...((conversation.metadata as Record<string, unknown>) ?? {}),
-    };
-    if (cmd.assignedToUserId !== undefined) {
-      metadata.assignedToUserId = cmd.assignedToUserId;
-    }
-    if (cmd.isPinned !== undefined) {
-      metadata.isPinned = cmd.isPinned;
-    }
-
     return this.prisma.conversation.update({
       where: { id: cmd.id },
       data: {
-        status: cmd.status,
-        metadata: metadata as Prisma.InputJsonValue,
+        ...(cmd.status !== undefined ? { status: cmd.status } : {}),
+        ...(cmd.assignedToUserId !== undefined
+          ? { assignedToUserId: cmd.assignedToUserId }
+          : {}),
+        ...(cmd.isPinned !== undefined ? { isPinned: cmd.isPinned } : {}),
       },
       include: {
-        contact: true,
+        contact: {
+          include: { tags: { include: { tag: true } } },
+        },
         communicationAccount: {
           select: {
             id: true,
@@ -51,6 +46,28 @@ export class PatchConversationHandler {
             phoneNumber: true,
           },
         },
+      },
+    });
+  }
+}
+
+@Injectable()
+export class MarkConversationReadHandler {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async execute(organizationId: string, id: string) {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id, organizationId, deletedAt: null },
+    });
+    if (!conversation) throw new NotFoundError('Conversation', id);
+
+    return this.prisma.conversation.update({
+      where: { id },
+      data: { unreadCount: 0 },
+      select: {
+        id: true,
+        unreadCount: true,
+        status: true,
       },
     });
   }

@@ -4,6 +4,7 @@ import { ChannelCode } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { IsDate, IsEnum, IsOptional, IsUUID } from 'class-validator';
 import { JwtAuthGuard } from '../../guards/jwt-auth.guard';
+import { TenantScopeGuard } from '../../guards/tenant-scope.guard';
 import { PaginationDto } from '../../dto/pagination.dto';
 import {
   GetAnalyticsHandler,
@@ -39,15 +40,19 @@ class AnalyticsQueryDto {
 
 @ApiTags('Admin Dashboard')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, TenantScopeGuard)
 @Controller('admin/v1/dashboard')
 export class DashboardController {
   constructor(private readonly dashboard: GetDashboardHandler) {}
 
   @Get()
-  async get(@Query('organizationId') organizationId: string) {
+  async get(
+    @Query('organizationId') organizationId: string,
+    @Query('rangeDays') rangeDays?: string,
+  ) {
+    const days = rangeDays ? Number(rangeDays) : 7;
     return {
-      data: await this.dashboard.execute(organizationId),
+      data: await this.dashboard.execute(organizationId, days),
       message: 'OK',
     };
   }
@@ -55,7 +60,7 @@ export class DashboardController {
 
 @ApiTags('Admin Analytics')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, TenantScopeGuard)
 @Controller('admin/v1/analytics')
 export class AnalyticsController {
   constructor(private readonly analytics: GetAnalyticsHandler) {}
@@ -71,7 +76,7 @@ export class AnalyticsController {
 
 @ApiTags('Admin Audit')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, TenantScopeGuard)
 @Controller('admin/v1/audit')
 export class AuditController {
   constructor(private readonly listAudit: ListAuditLogsHandler) {}
@@ -87,7 +92,7 @@ export class AuditController {
 
 @ApiTags('Admin Settings')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, TenantScopeGuard)
 @Controller('admin/v1/settings')
 export class SettingsController {
   constructor(

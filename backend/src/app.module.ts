@@ -11,7 +11,7 @@ import { CommunicationModule } from './modules/communication.module';
 import { GlobalExceptionFilter } from './presentation/filters/global-exception.filter';
 import { TransformInterceptor } from './presentation/interceptors/transform.interceptor';
 import { CorrelationIdInterceptor } from './presentation/interceptors/correlation-id.interceptor';
-import { MESSAGE_QUEUE } from './infrastructure/queue/message-queue.service';
+import { MESSAGE_QUEUE, BROADCAST_QUEUE } from './infrastructure/queue/message-queue.service';
 
 function buildBullImports() {
   const redisUrl = process.env.REDIS_URL;
@@ -30,7 +30,10 @@ function buildBullImports() {
           maxRetriesPerRequest: null,
         },
       }),
-      BullModule.registerQueue({ name: MESSAGE_QUEUE }),
+      BullModule.registerQueue(
+        { name: MESSAGE_QUEUE },
+        { name: BROADCAST_QUEUE },
+      ),
     ];
   } catch {
     return [];

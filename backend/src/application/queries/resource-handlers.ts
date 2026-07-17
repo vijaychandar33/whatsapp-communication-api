@@ -80,19 +80,57 @@ export class GetAccountHandler {
 export class ListContactsHandler {
   constructor(private readonly prisma: PrismaService) {}
 
-  async execute(organizationId: string, pagination: PaginationDto) {
-    const where = { organizationId, deletedAt: null };
+  async execute(
+    organizationId: string,
+    pagination: PaginationDto,
+    filters?: { q?: string; tagId?: string },
+  ) {
+    const where = {
+      organizationId,
+      deletedAt: null,
+      ...(filters?.tagId
+        ? { tags: { some: { tagId: filters.tagId } } }
+        : {}),
+      ...(filters?.q
+        ? {
+            OR: [
+              {
+                displayName: {
+                  contains: filters.q,
+                  mode: 'insensitive' as const,
+                },
+              },
+              {
+                phoneNumber: {
+                  contains: filters.q,
+                  mode: 'insensitive' as const,
+                },
+              },
+              {
+                email: { contains: filters.q, mode: 'insensitive' as const },
+              },
+              {
+                company: { contains: filters.q, mode: 'insensitive' as const },
+              },
+            ],
+          }
+        : {}),
+    };
     const [items, total] = await Promise.all([
       this.prisma.contact.findMany({
         where,
         skip: pagination.skip,
         take: pagination.take,
         orderBy: { createdAt: 'desc' },
+        include: { tags: { include: { tag: true } } },
       }),
       this.prisma.contact.count({ where }),
     ]);
     return {
-      data: items,
+      data: items.map((c) => ({
+        ...c,
+        tags: c.tags.map((t) => t.tag),
+      })),
       meta: buildPaginatedMeta(
         pagination.page ?? 1,
         pagination.limit ?? 20,
@@ -109,9 +147,16 @@ export class GetContactHandler {
   async execute(organizationId: string, id: string) {
     const contact = await this.prisma.contact.findFirst({
       where: { id, organizationId, deletedAt: null },
+      include: {
+        tags: { include: { tag: true } },
+        notes: { orderBy: { createdAt: 'desc' }, take: 50 },
+      },
     });
     if (!contact) throw new NotFoundError('Contact', id);
-    return contact;
+    return {
+      ...contact,
+      tags: contact.tags.map((t) => t.tag),
+    };
   }
 }
 
@@ -122,21 +167,58 @@ export class ListConversationsHandler {
   async execute(
     organizationId: string,
     pagination: PaginationDto,
-    filters?: { status?: ConversationStatus },
+    filters?: {
+      status?: ConversationStatus;
+      assignedToUserId?: string;
+      unreadOnly?: boolean;
+      q?: string;
+    },
   ) {
     const where = {
       organizationId,
       deletedAt: null,
       ...(filters?.status ? { status: filters.status } : {}),
+      ...(filters?.assignedToUserId
+        ? { assignedToUserId: filters.assignedToUserId }
+        : {}),
+      ...(filters?.unreadOnly ? { unreadCount: { gt: 0 } } : {}),
+      ...(filters?.q
+        ? {
+            OR: [
+              {
+                contact: {
+                  displayName: { contains: filters.q, mode: 'insensitive' as const },
+                },
+              },
+              {
+                contact: {
+                  phoneNumber: { contains: filters.q, mode: 'insensitive' as const },
+                },
+              },
+              {
+                lastMessageText: {
+                  contains: filters.q,
+                  mode: 'insensitive' as const,
+                },
+              },
+            ],
+          }
+        : {}),
     };
     const [items, total] = await Promise.all([
       this.prisma.conversation.findMany({
         where,
         skip: pagination.skip,
         take: pagination.take,
-        orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
+        orderBy: [
+          { isPinned: 'desc' },
+          { lastMessageAt: 'desc' },
+          { updatedAt: 'desc' },
+        ],
         include: {
-          contact: true,
+          contact: {
+            include: { tags: { include: { tag: true } } },
+          },
           communicationAccount: {
             select: {
               id: true,
@@ -150,7 +232,15 @@ export class ListConversationsHandler {
       this.prisma.conversation.count({ where }),
     ]);
     return {
-      data: items,
+      data: items.map((c) => ({
+        ...c,
+        contact: c.contact
+          ? {
+              ...c.contact,
+              tags: c.contact.tags.map((t) => t.tag),
+            }
+          : c.contact,
+      })),
       meta: buildPaginatedMeta(
         pagination.page ?? 1,
         pagination.limit ?? 20,
@@ -168,7 +258,12 @@ export class GetConversationHandler {
     const conversation = await this.prisma.conversation.findFirst({
       where: { id, organizationId, deletedAt: null },
       include: {
-        contact: true,
+        contact: {
+          include: {
+            tags: { include: { tag: true } },
+            notes: { orderBy: { createdAt: 'desc' }, take: 20 },
+          },
+        },
         communicationAccount: {
           select: {
             id: true,
@@ -179,12 +274,21 @@ export class GetConversationHandler {
         },
         messages: {
           orderBy: { createdAt: 'desc' },
-          take: 50,
+          take: 100,
         },
       },
     });
     if (!conversation) throw new NotFoundError('Conversation', id);
-    return conversation;
+    return {
+      ...conversation,
+      contact: conversation.contact
+        ? {
+            ...conversation.contact,
+            tags: conversation.contact.tags.map((t) => t.tag),
+          }
+        : conversation.contact,
+      messages: [...conversation.messages].reverse(),
+    };
   }
 }
 
@@ -299,8 +403,30 @@ export class ListAuditLogsHandler {
       }),
       this.prisma.auditLog.count({ where }),
     ]);
+
+    const userIds = [
+      ...new Set(
+        items
+          .map((item) => item.userId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const users =
+      userIds.length > 0
+        ? await this.prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, email: true },
+          })
+        : [];
+    const emailById = new Map(users.map((u) => [u.id, u.email]));
+
     return {
-      data: items,
+      data: items.map((item) => ({
+        ...item,
+        actorId: item.userId,
+        actorEmail: item.userId ? emailById.get(item.userId) ?? null : null,
+        resourceType: item.resource,
+      })),
       meta: buildPaginatedMeta(
         pagination.page ?? 1,
         pagination.limit ?? 20,
@@ -314,23 +440,31 @@ export class ListAuditLogsHandler {
 export class GetDashboardHandler {
   constructor(private readonly prisma: PrismaService) {}
 
-  async execute(organizationId: string) {
+  async execute(organizationId: string, rangeDays = 7) {
+    const days = [7, 30, 90].includes(rangeDays) ? rangeDays : 7;
     const startOfDay = new Date();
     startOfDay.setUTCHours(0, 0, 0, 0);
+    const startOfYesterday = new Date(startOfDay);
+    startOfYesterday.setUTCDate(startOfYesterday.getUTCDate() - 1);
+    const seriesFrom = new Date(startOfDay);
+    seriesFrom.setUTCDate(seriesFrom.getUTCDate() - (days - 1));
 
     const [
       messagesToday,
       openConversations,
       failedToday,
-      recentStats,
       inboundToday,
       outboundToday,
+      newContactsToday,
+      messagesYesterday,
+      newContactsYesterday,
+      openConversationsYesterday,
+      recentStats,
+      recentMessages,
+      recentContacts,
     ] = await Promise.all([
       this.prisma.message.count({
-        where: {
-          organizationId,
-          createdAt: { gte: startOfDay },
-        },
+        where: { organizationId, createdAt: { gte: startOfDay } },
       }),
       this.prisma.conversation.count({
         where: {
@@ -346,13 +480,6 @@ export class GetDashboardHandler {
           createdAt: { gte: startOfDay },
         },
       }),
-      this.prisma.analyticsDailyStat.findMany({
-        where: {
-          organizationId,
-          date: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-        },
-        orderBy: { date: 'desc' },
-      }),
       this.prisma.message.count({
         where: {
           organizationId,
@@ -367,7 +494,102 @@ export class GetDashboardHandler {
           createdAt: { gte: startOfDay },
         },
       }),
+      this.prisma.contact.count({
+        where: {
+          organizationId,
+          deletedAt: null,
+          createdAt: { gte: startOfDay },
+        },
+      }),
+      this.prisma.message.count({
+        where: {
+          organizationId,
+          createdAt: { gte: startOfYesterday, lt: startOfDay },
+        },
+      }),
+      this.prisma.contact.count({
+        where: {
+          organizationId,
+          deletedAt: null,
+          createdAt: { gte: startOfYesterday, lt: startOfDay },
+        },
+      }),
+      this.prisma.conversation.count({
+        where: {
+          organizationId,
+          status: ConversationStatus.OPEN,
+          deletedAt: null,
+          createdAt: { lt: startOfDay },
+        },
+      }),
+      this.prisma.analyticsDailyStat.findMany({
+        where: {
+          organizationId,
+          date: { gte: seriesFrom },
+        },
+        orderBy: { date: 'asc' },
+      }),
+      this.prisma.message.findMany({
+        where: { organizationId },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: {
+          id: true,
+          direction: true,
+          body: true,
+          createdAt: true,
+          status: true,
+        },
+      }),
+      this.prisma.contact.findMany({
+        where: { organizationId, deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: {
+          id: true,
+          displayName: true,
+          phoneNumber: true,
+          createdAt: true,
+        },
+      }),
     ]);
+
+    const byDay = new Map<
+      string,
+      { day: string; inbound: number; outbound: number }
+    >();
+    for (let i = 0; i < days; i++) {
+      const d = new Date(seriesFrom);
+      d.setUTCDate(seriesFrom.getUTCDate() + i);
+      const key = d.toISOString().slice(0, 10);
+      byDay.set(key, { day: key, inbound: 0, outbound: 0 });
+    }
+    for (const row of recentStats) {
+      const key = row.date.toISOString().slice(0, 10);
+      const bucket = byDay.get(key);
+      if (bucket) {
+        bucket.inbound += row.messagesReceived;
+        bucket.outbound += row.messagesSent;
+      }
+    }
+
+    // Fallback live series from messages if analytics empty
+    if (recentStats.length === 0) {
+      const msgs = await this.prisma.message.findMany({
+        where: {
+          organizationId,
+          createdAt: { gte: seriesFrom },
+        },
+        select: { createdAt: true, direction: true },
+      });
+      for (const m of msgs) {
+        const key = m.createdAt.toISOString().slice(0, 10);
+        const bucket = byDay.get(key);
+        if (!bucket) continue;
+        if (m.direction === 'INBOUND') bucket.inbound += 1;
+        else bucket.outbound += 1;
+      }
+    }
 
     const aggregated = recentStats.reduce(
       (acc, row) => {
@@ -385,6 +607,23 @@ export class GetDashboardHandler {
       },
     );
 
+    const activity = [
+      ...recentMessages.map((m) => ({
+        id: m.id,
+        kind: 'message' as const,
+        summary: `${m.direction} ${m.status}${m.body ? `: ${m.body.slice(0, 80)}` : ''}`,
+        createdAt: m.createdAt,
+      })),
+      ...recentContacts.map((c) => ({
+        id: c.id,
+        kind: 'contact' as const,
+        summary: `New contact ${c.displayName || c.phoneNumber || c.id.slice(0, 8)}`,
+        createdAt: c.createdAt,
+      })),
+    ]
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 15);
+
     return {
       live: {
         messagesToday,
@@ -392,9 +631,16 @@ export class GetDashboardHandler {
         outboundToday,
         openConversations,
         failedToday,
+        newContactsToday,
+        messagesYesterday,
+        newContactsYesterday,
+        openConversationsYesterday,
       },
       last7Days: aggregated,
       dailyStats: recentStats,
+      series: Array.from(byDay.values()),
+      activity,
+      rangeDays: days,
     };
   }
 }

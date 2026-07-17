@@ -2,6 +2,7 @@ import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ChannelCode } from '@prisma/client';
 import { JwtAuthGuard } from '../../guards/jwt-auth.guard';
+import { TenantScopeGuard } from '../../guards/tenant-scope.guard';
 import { PaginationDto } from '../../dto/pagination.dto';
 import {
   CreateTemplateHandler,
@@ -12,7 +13,7 @@ import { CreateTemplateDto, SyncTemplatesDto } from './dto/resources.dto';
 
 @ApiTags('Admin Templates')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, TenantScopeGuard)
 @Controller('admin/v1/templates')
 export class TemplatesController {
   constructor(

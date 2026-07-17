@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../guards/jwt-auth.guard';
+import { TenantScopeGuard } from '../../guards/tenant-scope.guard';
 import { PaginationDto } from '../../dto/pagination.dto';
 import {
   ConnectAccountHandler,
@@ -30,7 +31,7 @@ import {
 
 @ApiTags('Admin Accounts')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, TenantScopeGuard)
 @Controller('admin/v1/accounts')
 export class AccountsController {
   constructor(

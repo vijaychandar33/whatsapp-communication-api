@@ -77,36 +77,51 @@ async function main(): Promise<void> {
     console.log('Created SYSTEM organization');
   }
 
-  let adminRole = await prisma.role.findFirst({
-    where: { name: 'admin', organizationId: org.id },
-  });
-  if (!adminRole) {
-    adminRole = await prisma.role.create({
-      data: {
-        id: randomUUID(),
-        organizationId: org.id,
-        name: 'admin',
-        description: 'Full platform administrator',
-        isSystem: true,
-      },
+  // Ensure fixed workspace roles
+  const roleNames = [
+    { name: 'owner', description: 'Full ownership' },
+    { name: 'admin', description: 'Manage members and settings' },
+    { name: 'agent', description: 'Operational messaging access' },
+    { name: 'viewer', description: 'Read-only access' },
+  ] as const;
+
+  const roleIds: Record<string, string> = {};
+  for (const r of roleNames) {
+    let role = await prisma.role.findFirst({
+      where: { name: r.name, organizationId: org.id },
     });
+    if (!role) {
+      role = await prisma.role.create({
+        data: {
+          id: randomUUID(),
+          organizationId: org.id,
+          name: r.name,
+          description: r.description,
+          isSystem: true,
+        },
+      });
+    }
+    roleIds[r.name] = role.id;
   }
 
+  const ownerRoleId = roleIds.owner;
   const allPermissions = await prisma.permission.findMany();
-  for (const permission of allPermissions) {
-    await prisma.rolePermission.upsert({
-      where: {
-        roleId_permissionId: {
-          roleId: adminRole.id,
+  for (const roleId of Object.values(roleIds)) {
+    for (const permission of allPermissions) {
+      await prisma.rolePermission.upsert({
+        where: {
+          roleId_permissionId: {
+            roleId,
+            permissionId: permission.id,
+          },
+        },
+        create: {
+          roleId,
           permissionId: permission.id,
         },
-      },
-      create: {
-        roleId: adminRole.id,
-        permissionId: permission.id,
-      },
-      update: {},
-    });
+        update: {},
+      });
+    }
   }
 
   const adminEmail = 'admin@local';
@@ -125,7 +140,7 @@ async function main(): Promise<void> {
         firstName: 'Platform',
         lastName: 'Admin',
         status: 'ACTIVE',
-        roles: { create: [{ roleId: adminRole.id }] },
+        roles: { create: [{ roleId: ownerRoleId }] },
         preferences: { create: { id: randomUUID() } },
       },
     });
@@ -133,9 +148,9 @@ async function main(): Promise<void> {
   } else {
     await prisma.userRole.upsert({
       where: {
-        userId_roleId: { userId: admin.id, roleId: adminRole.id },
+        userId_roleId: { userId: admin.id, roleId: ownerRoleId },
       },
-      create: { userId: admin.id, roleId: adminRole.id },
+      create: { userId: admin.id, roleId: ownerRoleId },
       update: {},
     });
     console.log('Admin user already exists');

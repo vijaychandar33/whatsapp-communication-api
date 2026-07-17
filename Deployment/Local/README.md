@@ -14,12 +14,22 @@ docker compose -f Deployment/Local/docker-compose.yml up --build -d
 |---------|-----|
 | Admin UI | http://localhost:5173 |
 | API / Swagger | http://localhost:3000 / http://localhost:3000/docs |
+| Postgres (host) | `localhost:5433` |
+| Redis (host) | `localhost:6380` |
 | Login | `admin@local` / `Admin123!` |
+
+Compose runs `prisma migrate deploy` + seed on API start. Host DB/Redis ports are **5433 / 6380** so they do not clash with Homebrew Postgres/Redis on 5432/6379.
 
 Stop:
 
 ```bash
 docker compose -f Deployment/Local/docker-compose.yml down
+```
+
+Reset volumes (wipes DB):
+
+```bash
+docker compose -f Deployment/Local/docker-compose.yml down -v
 ```
 
 ## Infrastructure only
@@ -30,6 +40,13 @@ Use when running backend/frontend natively with hot reload:
 docker compose -f Deployment/Local/docker-compose.yml up -d postgres redis
 ```
 
+Point native `.env` at:
+
+```env
+DATABASE_URL=postgresql://postgres:postgres@localhost:5433/communication_platform?schema=public
+REDIS_URL=redis://localhost:6380
+```
+
 ## Native development
 
 ### Backend
@@ -38,7 +55,7 @@ docker compose -f Deployment/Local/docker-compose.yml up -d postgres redis
 cd backend
 cp .env.example .env
 npm install
-npx prisma migrate dev --name init
+npx prisma migrate deploy
 npm run seed
 npm run start:dev
 ```
