@@ -20,9 +20,9 @@ Subscription: **Azure subscription 1** (`1430951b-2576-4461-8c34-f0d88afb5971`)
 
 | Item | Value |
 |------|-------|
-| **App URL** | http://uaakcbe6tb68ol5bb6x0fqyr.74.225.185.16.sslip.io |
-| **API Health** | http://uaakcbe6tb68ol5bb6x0fqyr.74.225.185.16.sslip.io/admin/v1/health |
-| **Swagger** | http://uaakcbe6tb68ol5bb6x0fqyr.74.225.185.16.sslip.io/docs |
+| **App URL** | https://uaakcbe6tb68ol5bb6x0fqyr.74.225.185.16.sslip.io |
+| **API Health** | https://uaakcbe6tb68ol5bb6x0fqyr.74.225.185.16.sslip.io/admin/v1/health |
+| **Swagger** | https://uaakcbe6tb68ol5bb6x0fqyr.74.225.185.16.sslip.io/docs |
 | **GitHub Repo** | https://github.com/vijaychandar33/whatsapp-communication-api |
 | **Coolify Project** | Communication Platform → production → whatsapp-api |
 | **Compose File** | `Deployment/Production/docker-compose.yml` |

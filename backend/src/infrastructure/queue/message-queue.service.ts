@@ -54,7 +54,7 @@ export class MessageQueueService implements OnModuleInit {
       return false;
     }
     await this.queue.add('send-message', payload, {
-      jobId: `send:${payload.messageId}`,
+      jobId: `send-${payload.messageId}`,
       attempts: 5,
       backoff: { type: 'exponential', delay: 2000 },
       removeOnComplete: 1000,
@@ -68,7 +68,7 @@ export class MessageQueueService implements OnModuleInit {
       return false;
     }
     await this.broadcastQueue.add('deliver-broadcast', payload, {
-      jobId: `broadcast:${payload.broadcastId}`,
+      jobId: `broadcast-${payload.broadcastId}`,
       attempts: 3,
       backoff: { type: 'exponential', delay: 5000 },
       removeOnComplete: 200,

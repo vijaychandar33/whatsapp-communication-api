@@ -71,7 +71,7 @@ jobs:
 
             case "$status" in
               finished|success)
-                echo "Deploy succeeded — live at http://uaakcbe6tb68ol5bb6x0fqyr.74.225.185.16.sslip.io"
+                echo "Deploy succeeded — live at https://uaakcbe6tb68ol5bb6x0fqyr.74.225.185.16.sslip.io"
                 exit 0
                 ;;
               failed|error|cancelled)
