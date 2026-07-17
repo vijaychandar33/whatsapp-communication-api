@@ -28,7 +28,7 @@ services:
 
   api:
     build:
-      context: ../../backend
+      context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
@@ -65,7 +65,7 @@ services:
 
   worker:
     build:
-      context: ../../backend
+      context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
     command: ["node", "dist/scripts/worker.js"]
@@ -92,7 +92,7 @@ services:
 
   frontend:
     build:
-      context: ../../frontend
+      context: ./frontend
       dockerfile: Dockerfile
       args:
         VITE_API_URL: ""
