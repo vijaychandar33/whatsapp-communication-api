@@ -17,14 +17,14 @@ Enterprise communication platform that abstracts channel providers (WhatsApp/Met
 |-------|------|
 | Backend | NestJS, Prisma, PostgreSQL, Redis/BullMQ, Passport JWT, Swagger |
 | Frontend | React, Vite, TanStack Query, Tailwind, React Hook Form + Zod |
-| Deploy | Docker Compose — see [`Deployment/`](Deployment/) for Coolify production |
+| Deploy | [`Deployment/Production/`](Deployment/Production/) (Coolify) · [`Deployment/Local/`](Deployment/Local/) (Docker) |
 
 ## Quick start (local)
 
 ### 1. Infrastructure
 
 ```bash
-docker compose up -d postgres redis
+docker compose -f Deployment/Local/docker-compose.yml up -d postgres redis
 ```
 
 ### 2. Backend
@@ -56,7 +56,7 @@ npm run dev
 ### Full stack via Docker Desktop
 
 ```bash
-docker compose up --build -d
+docker compose -f Deployment/Local/docker-compose.yml up --build -d
 ```
 
 | Service | URL |
@@ -94,11 +94,12 @@ Idempotency-Key: unique-client-key
 ## Project layout
 
 ```
-docs/           Architecture + ADRs
-backend/        NestJS Clean Architecture API + worker
-frontend/       React Admin Dashboard
-Deployment/     Coolify + Azure deployment configs
-docker-compose.yml
+docs/                Architecture + ADRs
+backend/             NestJS Clean Architecture API + worker
+frontend/            React Admin Dashboard
+Deployment/
+  Production/        Coolify + Azure production deploy
+  Local/             Local Docker Compose stack
 ```
 
 ## Implementation principles

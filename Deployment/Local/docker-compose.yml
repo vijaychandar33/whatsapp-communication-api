@@ -1,13 +1,12 @@
-# Production Docker Compose for Coolify deployment.
-# Assign the public domain/FQDN to the `frontend` service in Coolify.
 services:
   postgres:
     image: postgres:16-alpine
-    restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: postgres
       POSTGRES_DB: communication_platform
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -18,7 +17,8 @@ services:
 
   redis:
     image: redis:7-alpine
-    restart: unless-stopped
+    ports:
+      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -29,21 +29,22 @@ services:
 
   api:
     build:
-      context: ../backend
+      context: ../../backend
       dockerfile: Dockerfile
-    restart: unless-stopped
     environment:
       NODE_ENV: production
       PORT: "3000"
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/communication_platform?schema=public
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/communication_platform?schema=public
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      CORS_ORIGINS: ${CORS_ORIGINS}
-      META_GRAPH_API_VERSION: ${META_GRAPH_API_VERSION:-v21.0}
+      JWT_SECRET: change-me-jwt-secret-min-32-chars-long!!
+      JWT_REFRESH_SECRET: change-me-refresh-secret-min-32-chars!
+      ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000
+      META_GRAPH_API_VERSION: v21.0
       STORAGE_PATH: /app/storage
-      SEED_ON_START: ${SEED_ON_START:-true}
+      SEED_ON_START: "true"
+    ports:
+      - "3000:3000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,18 +67,17 @@ services:
 
   worker:
     build:
-      context: ../backend
+      context: ../../backend
       dockerfile: Dockerfile
-    restart: unless-stopped
     command: ["node", "dist/scripts/worker.js"]
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/communication_platform?schema=public
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/communication_platform?schema=public
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      META_GRAPH_API_VERSION: ${META_GRAPH_API_VERSION:-v21.0}
+      JWT_SECRET: change-me-jwt-secret-min-32-chars-long!!
+      JWT_REFRESH_SECRET: change-me-refresh-secret-min-32-chars!
+      ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      META_GRAPH_API_VERSION: v21.0
       STORAGE_PATH: /app/storage
       WORKER_MODE: "true"
       SEED_ON_START: "false"
@@ -93,13 +93,12 @@ services:
 
   frontend:
     build:
-      context: ../frontend
+      context: ../../frontend
       dockerfile: Dockerfile
       args:
         VITE_API_URL: ""
-    restart: unless-stopped
-    expose:
-      - "80"
+    ports:
+      - "5173:80"
     depends_on:
       api:
         condition: service_healthy
