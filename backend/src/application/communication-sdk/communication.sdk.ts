@@ -10,6 +10,7 @@ import { MessageQueuedEvent, MessageSentEvent } from '../../domain/events';
 import { ChannelAccountContext } from '../../domain/interfaces/channel-provider.interface';
 import { MessageType as DomainMessageType } from '../../domain/enums';
 import { NotFoundError, ProviderUnavailable } from '../../domain/errors';
+import { PhoneNumber } from '../../domain/value-objects/phone-number.vo';
 import { PrismaService } from '../../infrastructure/persistence/prisma/prisma.service';
 import { ChannelProviderRegistry } from '../../infrastructure/providers/channel-provider.registry';
 import { AesSecretService } from '../../infrastructure/secrets/secret.service';
@@ -101,6 +102,7 @@ export class CommunicationSdk {
 
     const messageId = this.identifiers.generate();
     const messageType = input.messageType ?? MessageType.TEXT;
+    const toE164 = contact.phoneNumber || PhoneNumber.create(input.to).toString();
 
     await this.prisma.$transaction(async (tx) => {
       await tx.message.create({
@@ -116,7 +118,7 @@ export class CommunicationSdk {
           status: MessageStatus.QUEUED,
           body: input.body,
           content: (input.content ?? {
-            to: input.to,
+            to: toE164,
             mediaUrl: input.mediaUrl,
             mediaId: input.mediaId,
             caption: input.caption,
@@ -364,13 +366,19 @@ export class CommunicationSdk {
       return existing;
     }
 
-    const phoneNumber = to.startsWith('+') ? to : `+${to}`;
+    const phoneNumber = PhoneNumber.create(to).toString();
     const found = await this.prisma.contact.findUnique({
       where: {
         organizationId_phoneNumber: { organizationId, phoneNumber },
       },
     });
-    if (found) return found;
+    if (found && !found.deletedAt) return found;
+    if (found?.deletedAt) {
+      return this.prisma.contact.update({
+        where: { id: found.id },
+        data: { deletedAt: null },
+      });
+    }
 
     return this.prisma.contact.create({
       data: {

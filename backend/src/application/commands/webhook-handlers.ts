@@ -255,11 +255,7 @@ export class ProcessWebhookHandler {
     });
     if (dup) return;
 
-    const normalized = event.from.startsWith('+')
-      ? event.from
-      : `+${event.from}`;
-    const phoneNumber =
-      PhoneNumber.tryCreate(normalized)?.toString() ?? normalized;
+    const phoneNumber = PhoneNumber.create(event.from).toString();
 
     let contact = await this.prisma.contact.findUnique({
       where: {

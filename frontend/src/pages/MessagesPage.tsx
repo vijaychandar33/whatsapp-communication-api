@@ -240,7 +240,8 @@ export function MessagesPage() {
           </div>
           <Input
             label="To (E.164)"
-            placeholder="+919876543210"
+            placeholder="+918754519567"
+            hint="10-digit Indian mobiles are normalized to +91…"
             error={form.formState.errors.to?.message}
             {...form.register('to')}
           />
