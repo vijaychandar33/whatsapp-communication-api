@@ -12,7 +12,7 @@ import { Table, THead, TBody, TR, TH, TD } from '../components/ui/Table';
 import { Pagination } from '../components/ui/Pagination';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Badge, statusTone } from '../components/ui/Badge';
-import { formatDate } from '../lib/utils';
+import { cn, fieldControlClass, fieldLabelClass, formatDate } from '../lib/utils';
 
 type Template = {
   id: string;
@@ -22,6 +22,7 @@ type Template = {
   status?: string;
   channelCode?: string;
   body?: string | null;
+  providerTemplateId?: string | null;
   createdAt?: string;
 };
 
@@ -40,9 +41,11 @@ export function TemplatesPage() {
   const [syncOpen, setSyncOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [accountId, setAccountId] = useState('');
+  const [createAccountId, setCreateAccountId] = useState('');
+  const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [draft, setDraft] = useState({
     name: '',
-    language: 'en',
+    language: 'en_US',
     category: 'UTILITY',
     body: '',
   });
@@ -55,8 +58,8 @@ export function TemplatesPage() {
   });
 
   const accounts = useQuery({
-    queryKey: ['accounts', 'templates-sync', orgId],
-    enabled: Boolean(orgId) && syncOpen,
+    queryKey: ['accounts', 'templates', orgId],
+    enabled: Boolean(orgId) && (syncOpen || createOpen),
     queryFn: async () => {
       const { data } = await api.get<{ data: Account[] }>('/admin/v1/accounts', {
         params: { organizationId: orgId, limit: 100 },
@@ -67,34 +70,59 @@ export function TemplatesPage() {
 
   const sync = useMutation({
     mutationFn: async () => {
-      const { data } = await api.post('/admin/v1/templates/sync', {
+      const { data } = await api.post<{
+        data?: { synced?: number };
+        message?: string;
+      }>('/admin/v1/templates/sync', {
         organizationId: orgId,
         communicationAccountId: accountId,
       });
       return data;
     },
-    onSuccess: async () => {
+    onSuccess: async (res) => {
       setSyncOpen(false);
       setAccountId('');
       await queryClient.invalidateQueries({ queryKey: ['templates'] });
+      const synced = res?.data?.synced ?? 0;
+      window.alert(
+        synced > 0
+          ? `Synced ${synced} template${synced === 1 ? '' : 's'} from Meta.`
+          : 'Sync ok — Meta returned 0 templates for this WABA.',
+      );
     },
   });
 
   const create = useMutation({
     mutationFn: async () => {
-      await api.post('/admin/v1/templates', {
+      const { data } = await api.post('/admin/v1/templates', {
         organizationId: orgId,
         channelCode: 'WHATSAPP',
         name: draft.name,
         language: draft.language,
         category: draft.category,
         body: draft.body,
-        status: 'DRAFT',
+        communicationAccountId: createAccountId,
       });
+      return data;
     },
     onSuccess: async () => {
       setCreateOpen(false);
-      setDraft({ name: '', language: 'en', category: 'UTILITY', body: '' });
+      setCreateAccountId('');
+      setDraft({ name: '', language: 'en_US', category: 'UTILITY', body: '' });
+      await queryClient.invalidateQueries({ queryKey: ['templates'] });
+    },
+  });
+
+  const refresh = useMutation({
+    mutationFn: async (templateId: string) => {
+      setRefreshingId(templateId);
+      const { data } = await api.post(`/admin/v1/templates/${templateId}/refresh`, {
+        organizationId: orgId,
+      });
+      return data;
+    },
+    onSettled: () => setRefreshingId(null),
+    onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['templates'] });
     },
   });
@@ -114,11 +142,11 @@ export function TemplatesPage() {
     <div>
       <PageHeader
         title="Templates"
-        description="Message templates synced from Meta WhatsApp."
+        description="Create templates on Meta and track approval status."
         actions={
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => setCreateOpen(true)}>
-              Create draft
+              Create template
             </Button>
             <Button onClick={() => setSyncOpen(true)}>Sync from Meta</Button>
           </div>
@@ -126,7 +154,7 @@ export function TemplatesPage() {
       />
 
       <Card>
-        <CardContent className="border-b border-slate-100 py-4">
+        <CardContent className="border-b border-zinc-100 py-4 dark:border-zinc-800">
           <Input
             placeholder="Search templates…"
             value={search}
@@ -144,7 +172,7 @@ export function TemplatesPage() {
         ) : items.length === 0 ? (
           <EmptyState
             title="No templates found"
-            description="Connect a WhatsApp account and sync templates from Meta."
+            description="Create a template (submits to Meta) or sync existing ones."
           />
         ) : (
           <Table>
@@ -156,13 +184,16 @@ export function TemplatesPage() {
                 <TH>Category</TH>
                 <TH>Status</TH>
                 <TH>Created</TH>
+                <TH className="w-16" />
               </TR>
             </THead>
             <TBody>
               {items.map((row) => (
                 <TR key={row.id}>
-                  <TD className="font-medium text-slate-900">{row.name || '—'}</TD>
-                  <TD className="max-w-xs truncate text-slate-600">
+                  <TD className="font-medium text-zinc-900 dark:text-zinc-100">
+                    {row.name || '—'}
+                  </TD>
+                  <TD className="max-w-xs truncate text-zinc-600 dark:text-zinc-400">
                     {row.body || '—'}
                   </TD>
                   <TD>{row.language || '—'}</TD>
@@ -175,11 +206,29 @@ export function TemplatesPage() {
                     )}
                   </TD>
                   <TD>{formatDate(row.createdAt)}</TD>
+                  <TD>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 px-0"
+                      title="Refresh status from Meta"
+                      disabled={refreshingId === row.id}
+                      onClick={() => refresh.mutate(row.id)}
+                    >
+                      {refreshingId === row.id ? '…' : '↻'}
+                    </Button>
+                  </TD>
                 </TR>
               ))}
             </TBody>
           </Table>
         )}
+
+        {refresh.isError ? (
+          <p className="px-4 py-2 text-sm text-red-600">
+            {getErrorMessage(refresh.error)}
+          </p>
+        ) : null}
 
         <Pagination
           page={list.data?.meta.page || page}
@@ -191,7 +240,7 @@ export function TemplatesPage() {
 
       <Modal
         open={createOpen}
-        title="Create draft template"
+        title="Create template"
         onClose={() => setCreateOpen(false)}
         footer={
           <>
@@ -200,31 +249,55 @@ export function TemplatesPage() {
             </Button>
             <Button
               loading={create.isPending}
-              disabled={!draft.name.trim() || !draft.body.trim()}
+              disabled={
+                !draft.name.trim() ||
+                !draft.body.trim() ||
+                !createAccountId
+              }
               onClick={() => create.mutate()}
             >
-              Create
+              Submit to Meta
             </Button>
           </>
         }
       >
         <div className="space-y-3">
+          <label className="block space-y-1.5">
+            <span className={fieldLabelClass}>WhatsApp account</span>
+            <select
+              className={cn(fieldControlClass, 'h-10 px-3')}
+              value={createAccountId}
+              onChange={(e) => setCreateAccountId(e.target.value)}
+            >
+              <option value="">Select account…</option>
+              {(accounts.data || []).map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name || a.phoneNumber || a.id.slice(0, 8)} ({a.connectionStatus})
+                </option>
+              ))}
+            </select>
+          </label>
           <Input
             label="Name"
+            placeholder="hello_pelican741"
             value={draft.name}
             onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
           />
+          <p className="text-xs text-zinc-500">
+            Lowercase letters, numbers, underscores. Submitted to Meta for review.
+          </p>
           <Input
             label="Language"
+            placeholder="en_US"
             value={draft.language}
             onChange={(e) =>
               setDraft((d) => ({ ...d, language: e.target.value }))
             }
           />
           <label className="block space-y-1.5">
-            <span className="text-sm font-medium text-slate-700">Category</span>
+            <span className={fieldLabelClass}>Category</span>
             <select
-              className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm"
+              className={cn(fieldControlClass, 'h-10 px-3')}
               value={draft.category}
               onChange={(e) =>
                 setDraft((d) => ({ ...d, category: e.target.value }))
@@ -236,13 +309,14 @@ export function TemplatesPage() {
             </select>
           </label>
           <label className="block space-y-1.5">
-            <span className="text-sm font-medium text-slate-700">Body</span>
+            <span className={fieldLabelClass}>Body</span>
             <textarea
-              className="min-h-24 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+              className={cn(fieldControlClass, 'min-h-24 px-3 py-2')}
               value={draft.body}
               onChange={(e) =>
                 setDraft((d) => ({ ...d, body: e.target.value }))
               }
+              placeholder="Hello, thanks for contacting Pelican741"
             />
           </label>
           {create.isError ? (
@@ -271,21 +345,21 @@ export function TemplatesPage() {
         }
       >
         <div className="space-y-3">
-          <label className="mb-1 block text-sm font-medium text-slate-700">
-            WhatsApp account
+          <label className="block space-y-1.5">
+            <span className={fieldLabelClass}>WhatsApp account</span>
+            <select
+              className={cn(fieldControlClass, 'h-10 px-3')}
+              value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}
+            >
+              <option value="">Select account…</option>
+              {(accounts.data || []).map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name || a.phoneNumber || a.id.slice(0, 8)} ({a.connectionStatus})
+                </option>
+              ))}
+            </select>
           </label>
-          <select
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            value={accountId}
-            onChange={(e) => setAccountId(e.target.value)}
-          >
-            <option value="">Select account…</option>
-            {(accounts.data || []).map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name || a.phoneNumber || a.id.slice(0, 8)} ({a.connectionStatus})
-              </option>
-            ))}
-          </select>
           {sync.isError ? (
             <p className="text-sm text-red-600">{getErrorMessage(sync.error)}</p>
           ) : null}

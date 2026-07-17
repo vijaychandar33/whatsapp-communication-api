@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ChannelCode } from '@prisma/client';
 import { JwtAuthGuard } from '../../guards/jwt-auth.guard';
@@ -6,10 +14,15 @@ import { TenantScopeGuard } from '../../guards/tenant-scope.guard';
 import { PaginationDto } from '../../dto/pagination.dto';
 import {
   CreateTemplateHandler,
+  RefreshTemplateStatusHandler,
   SyncTemplatesHandler,
 } from '../../../application/commands/template-handlers';
 import { ListTemplatesHandler } from '../../../application/queries/resource-handlers';
-import { CreateTemplateDto, SyncTemplatesDto } from './dto/resources.dto';
+import {
+  CreateTemplateDto,
+  RefreshTemplateDto,
+  SyncTemplatesDto,
+} from './dto/resources.dto';
 
 @ApiTags('Admin Templates')
 @ApiBearerAuth()
@@ -20,6 +33,7 @@ export class TemplatesController {
     private readonly listTemplates: ListTemplatesHandler,
     private readonly createTemplate: CreateTemplateHandler,
     private readonly syncTemplates: SyncTemplatesHandler,
+    private readonly refreshTemplate: RefreshTemplateStatusHandler,
   ) {}
 
   @Get()
@@ -35,7 +49,9 @@ export class TemplatesController {
   async create(@Body() dto: CreateTemplateDto) {
     return {
       data: await this.createTemplate.execute(dto),
-      message: 'Template created',
+      message: dto.draftOnly
+        ? 'Template draft saved'
+        : 'Template submitted to Meta',
     };
   }
 
@@ -47,6 +63,18 @@ export class TemplatesController {
         dto.communicationAccountId,
       ),
       message: 'Templates synced',
+    };
+  }
+
+  @Post(':id/refresh')
+  async refresh(@Param('id') id: string, @Body() dto: RefreshTemplateDto) {
+    return {
+      data: await this.refreshTemplate.execute(
+        dto.organizationId,
+        id,
+        dto.communicationAccountId,
+      ),
+      message: 'Template status refreshed',
     };
   }
 }

@@ -31,13 +31,46 @@ export function Badge({
 
 export function statusTone(status?: string): Tone {
   const s = (status || '').toLowerCase();
-  if (['active', 'delivered', 'read', 'completed', 'open', 'verified', 'ok'].includes(s)) {
+  if (
+    [
+      'active',
+      'delivered',
+      'read',
+      'completed',
+      'open',
+      'verified',
+      'ok',
+      'approved',
+      'connected',
+    ].includes(s)
+  ) {
     return 'success';
   }
-  if (['queued', 'pending', 'processing', 'sent', 'connecting'].includes(s)) {
+  if (
+    [
+      'queued',
+      'pending',
+      'processing',
+      'sent',
+      'connecting',
+      'paused',
+      'draft',
+    ].includes(s)
+  ) {
     return 'info';
   }
-  if (['failed', 'error', 'revoked', 'blocked', 'closed', 'inactive'].includes(s)) {
+  if (
+    [
+      'failed',
+      'error',
+      'revoked',
+      'blocked',
+      'closed',
+      'inactive',
+      'rejected',
+      'disabled',
+    ].includes(s)
+  ) {
     return 'danger';
   }
   return 'neutral';

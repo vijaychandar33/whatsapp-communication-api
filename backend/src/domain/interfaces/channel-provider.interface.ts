@@ -97,6 +97,22 @@ export interface SyncedTemplate {
   components?: unknown;
 }
 
+export interface CreateProviderTemplateParams {
+  name: string;
+  language: string;
+  category: string;
+  body: string;
+  components?: unknown[];
+}
+
+export interface CreatedProviderTemplate {
+  providerTemplateId: string;
+  name: string;
+  language: string;
+  category: string;
+  status: string;
+}
+
 export interface ChannelProvider {
   readonly channelCode: ChannelCode;
   getCapabilities(): ProviderCapabilities;
@@ -127,4 +143,16 @@ export interface ChannelProvider {
     appSecret: string,
   ): boolean;
   syncTemplates(ctx: ChannelAccountContext): Promise<SyncedTemplate[]>;
+  createTemplate(
+    ctx: ChannelAccountContext,
+    params: CreateProviderTemplateParams,
+  ): Promise<CreatedProviderTemplate>;
+  getTemplate(
+    ctx: ChannelAccountContext,
+    params: {
+      providerTemplateId?: string | null;
+      name: string;
+      language: string;
+    },
+  ): Promise<SyncedTemplate | null>;
 }

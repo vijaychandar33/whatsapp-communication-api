@@ -9,6 +9,8 @@ import {
 import {
   ChannelAccountContext,
   ChannelProvider,
+  CreateProviderTemplateParams,
+  CreatedProviderTemplate,
   MarkReadParams,
   ParsedWebhookEvent,
   ProviderSendResult,
@@ -298,13 +300,7 @@ export class WhatsAppChannelProvider implements ChannelProvider {
   }
 
   async syncTemplates(ctx: ChannelAccountContext): Promise<SyncedTemplate[]> {
-    const wabaId = ctx.businessAccountId ?? ctx.externalAccountId;
-    if (!wabaId) {
-      throw new ProviderUnavailable(
-        this.channelCode,
-        'Business account id required for template sync',
-      );
-    }
+    const wabaId = this.requireWabaId(ctx);
 
     try {
       const { data } = await this.http.get<{
@@ -314,28 +310,172 @@ export class WhatsAppChannelProvider implements ChannelProvider {
         params: { limit: 100 },
       });
 
-      return (data.data ?? []).map((t) => {
-        const components = (t.components as unknown[]) ?? [];
-        const bodyComp = components.find(
-          (c) =>
-            typeof c === 'object' &&
-            c !== null &&
-            (c as { type?: string }).type === 'BODY',
-        ) as { text?: string } | undefined;
-
-        return {
-          providerTemplateId: String(t.id ?? ''),
-          name: String(t.name ?? ''),
-          language: String(t.language ?? 'en'),
-          category: String(t.category ?? 'UTILITY'),
-          status: String(t.status ?? 'PENDING'),
-          body: bodyComp?.text ?? '',
-          components,
-        };
-      });
+      return (data.data ?? []).map((t) => this.mapSyncedTemplate(t));
     } catch (err) {
       throw this.mapProviderError(err);
     }
+  }
+
+  async createTemplate(
+    ctx: ChannelAccountContext,
+    params: CreateProviderTemplateParams,
+  ): Promise<CreatedProviderTemplate> {
+    const wabaId = this.requireWabaId(ctx);
+    const components =
+      params.components && params.components.length > 0
+        ? params.components
+        : [this.buildBodyComponent(params.body)];
+
+    try {
+      const { data } = await this.http.post<{
+        id?: string;
+        status?: string;
+        category?: string;
+      }>(
+        `/${wabaId}/message_templates`,
+        {
+          name: params.name,
+          language: params.language,
+          category: params.category,
+          allow_category_change: true,
+          components,
+        },
+        {
+          headers: { Authorization: `Bearer ${ctx.accessToken}` },
+        },
+      );
+
+      const providerTemplateId = String(data.id ?? '');
+      if (!providerTemplateId) {
+        throw new ProviderUnavailable(
+          this.channelCode,
+          'Meta did not return a template id',
+        );
+      }
+
+      return {
+        providerTemplateId,
+        name: params.name,
+        language: params.language,
+        category: String(data.category ?? params.category),
+        status: String(data.status ?? 'PENDING'),
+      };
+    } catch (err) {
+      throw this.mapProviderError(err);
+    }
+  }
+
+  async getTemplate(
+    ctx: ChannelAccountContext,
+    params: {
+      providerTemplateId?: string | null;
+      name: string;
+      language: string;
+    },
+  ): Promise<SyncedTemplate | null> {
+    const wabaId = this.requireWabaId(ctx);
+
+    try {
+      if (params.providerTemplateId) {
+        const { data } = await this.http.get<Record<string, unknown>>(
+          `/${params.providerTemplateId}`,
+          {
+            headers: { Authorization: `Bearer ${ctx.accessToken}` },
+            params: {
+              fields:
+                'id,name,language,status,category,components,rejected_reason',
+            },
+          },
+        );
+        return this.mapSyncedTemplate(data);
+      }
+
+      const { data } = await this.http.get<{
+        data?: Array<Record<string, unknown>>;
+      }>(`/${wabaId}/message_templates`, {
+        headers: { Authorization: `Bearer ${ctx.accessToken}` },
+        params: {
+          name: params.name,
+          language: params.language,
+          fields: 'id,name,language,status,category,components',
+          limit: 10,
+        },
+      });
+
+      const match = (data.data ?? []).find(
+        (t) =>
+          String(t.name ?? '') === params.name &&
+          String(t.language ?? '') === params.language,
+      );
+      return match ? this.mapSyncedTemplate(match) : null;
+    } catch (err) {
+      throw this.mapProviderError(err);
+    }
+  }
+
+  private requireWabaId(ctx: ChannelAccountContext): string {
+    const wabaId = ctx.businessAccountId ?? ctx.externalAccountId;
+    if (!wabaId) {
+      throw new ProviderUnavailable(
+        this.channelCode,
+        'Business account id required for template operations',
+      );
+    }
+    return wabaId;
+  }
+
+  private mapSyncedTemplate(t: Record<string, unknown>): SyncedTemplate {
+    const components = (t.components as unknown[]) ?? [];
+    const bodyComp = components.find(
+      (c) =>
+        typeof c === 'object' &&
+        c !== null &&
+        (c as { type?: string }).type === 'BODY',
+    ) as { text?: string } | undefined;
+
+    return {
+      providerTemplateId: String(t.id ?? ''),
+      name: String(t.name ?? ''),
+      language: String(t.language ?? 'en'),
+      category: String(t.category ?? 'UTILITY'),
+      status: String(t.status ?? 'PENDING'),
+      body: bodyComp?.text ?? '',
+      components,
+    };
+  }
+
+  private buildBodyComponent(body: string): Record<string, unknown> {
+    const component: Record<string, unknown> = {
+      type: 'BODY',
+      text: body,
+    };
+
+    const positional = [
+      ...body.matchAll(/\{\{(\d+)\}\}/g),
+    ].map((m) => Number(m[1]));
+    if (positional.length > 0) {
+      const max = Math.max(...positional);
+      component.example = {
+        body_text: [
+          Array.from({ length: max }, (_, i) => `example_${i + 1}`),
+        ],
+      };
+      return component;
+    }
+
+    const named = [
+      ...body.matchAll(/\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}/g),
+    ].map((m) => m[1]);
+    if (named.length > 0) {
+      component.example = {
+        body_text_named_params: named.map((param_name) => ({
+          param_name,
+          example: `example_${param_name}`,
+        })),
+      };
+    }
+
+    return component;
   }
 
   private mapSendResult(data: Record<string, unknown>): ProviderSendResult {

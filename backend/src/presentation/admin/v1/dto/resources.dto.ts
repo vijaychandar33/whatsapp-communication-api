@@ -226,6 +226,21 @@ export class CreateTemplateDto {
   @IsOptional()
   @IsEnum(TemplateStatus)
   status?: TemplateStatus;
+
+  @ApiPropertyOptional({
+    description:
+      'WhatsApp account used to submit the template to Meta. Required unless draftOnly=true.',
+  })
+  @IsOptional()
+  @IsUUID()
+  communicationAccountId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Save locally only; do not submit to Meta.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  draftOnly?: boolean;
 }
 
 export class SyncTemplatesDto {
@@ -236,6 +251,20 @@ export class SyncTemplatesDto {
   @ApiProperty()
   @IsUUID()
   communicationAccountId!: string;
+}
+
+export class RefreshTemplateDto {
+  @ApiProperty()
+  @IsUUID()
+  organizationId!: string;
+
+  @ApiPropertyOptional({
+    description:
+      'WhatsApp account used to query Meta. Defaults to a connected account for the org.',
+  })
+  @IsOptional()
+  @IsUUID()
+  communicationAccountId?: string;
 }
 
 export class UpdateSettingsDto {

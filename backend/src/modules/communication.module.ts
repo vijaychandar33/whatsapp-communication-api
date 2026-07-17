@@ -30,6 +30,7 @@ import {
 import { TagsService } from '../application/commands/tags.service';
 import {
   CreateTemplateHandler,
+  RefreshTemplateStatusHandler,
   SyncTemplatesHandler,
 } from '../application/commands/template-handlers';
 import {
@@ -170,6 +171,7 @@ const queueImports = hasRedis
     TagsService,
     CreateTemplateHandler,
     SyncTemplatesHandler,
+    RefreshTemplateStatusHandler,
     UploadMediaHandler,
     DeleteMediaHandler,
     UpdateSettingsHandler,
