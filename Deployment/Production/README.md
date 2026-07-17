@@ -43,13 +43,13 @@ Subscription: **Azure subscription 1** (`1430951b-2576-4461-8c34-f0d88afb5971`)
 
 Pushes to `main` that touch `backend/`, `frontend/`, or `Deployment/Production/` trigger a Coolify redeploy via GitHub Actions.
 
-**One-time setup** — add this GitHub repo secret (`Settings → Secrets and variables → Actions`):
+**One-time setup** — add this GitHub repo **variable** (`Settings → Secrets and variables → Actions → Variables`):
 
-| Secret | Value |
-|--------|-------|
+| Variable | Value |
+|----------|-------|
 | `COOLIFY_TOKEN` | API token from Coolify → Keys & Tokens |
 
-`COOLIFY_URL` and `COOLIFY_APP_UUID` are configured in the workflow `env` block (non-sensitive).
+`COOLIFY_URL` and `COOLIFY_APP_UUID` are in the workflow `env` block.
 
 Active workflow: `.github/workflows/deploy-production.yml` (mirrors `auto-deploy.yml`).
 

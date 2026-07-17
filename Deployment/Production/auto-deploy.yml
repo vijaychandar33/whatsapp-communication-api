@@ -3,13 +3,12 @@
 # How it works:
 # 1. Push to `main` (backend/, frontend/, or Deployment/Production/ changes)
 # 2. GitHub Actions runs `.github/workflows/deploy-production.yml`
-# 3. Workflow calls Coolify API → Coolify pulls latest code from GitHub → rebuilds → live
+# 3. Workflow calls Coolify API → Coolify pulls latest code → rebuilds → live
 #
 # Setup (one-time):
-# - GitHub secret: COOLIFY_TOKEN (Coolify → Keys & Tokens → Create API token)
+# - GitHub variable: COOLIFY_TOKEN (Settings → Secrets and variables → Actions → Variables)
 #
-# URL and app UUID are set in the workflow `env` block below (non-sensitive).
-# This file mirrors `.github/workflows/deploy-production.yml` for reference.
+# URL and app UUID are in the workflow `env` block. Mirrors `.github/workflows/deploy-production.yml`.
 
 name: Deploy Production (Coolify)
 
@@ -30,6 +29,7 @@ concurrency:
 env:
   COOLIFY_URL: http://74.225.185.16:8000
   COOLIFY_APP_UUID: uaakcbe6tb68ol5bb6x0fqyr
+  COOLIFY_TOKEN: ${{ vars.COOLIFY_TOKEN }}
 
 jobs:
   deploy:
@@ -39,13 +39,11 @@ jobs:
 
     steps:
       - name: Deploy to Coolify
-        env:
-          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
         run: |
           set -euo pipefail
 
           if [ -z "${COOLIFY_TOKEN:-}" ]; then
-            echo "Missing GitHub secret: COOLIFY_TOKEN"
+            echo "Missing GitHub variable: COOLIFY_TOKEN"
             exit 1
           fi
 

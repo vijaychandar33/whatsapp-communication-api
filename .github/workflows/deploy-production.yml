@@ -17,6 +17,7 @@ concurrency:
 env:
   COOLIFY_URL: http://74.225.185.16:8000
   COOLIFY_APP_UUID: uaakcbe6tb68ol5bb6x0fqyr
+  COOLIFY_TOKEN: ${{ vars.COOLIFY_TOKEN }}
 
 jobs:
   deploy:
@@ -26,13 +27,11 @@ jobs:
 
     steps:
       - name: Deploy to Coolify
-        env:
-          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
         run: |
           set -euo pipefail
 
           if [ -z "${COOLIFY_TOKEN:-}" ]; then
-            echo "Missing GitHub secret: COOLIFY_TOKEN"
+            echo "Missing GitHub variable: COOLIFY_TOKEN"
             exit 1
           fi
 
