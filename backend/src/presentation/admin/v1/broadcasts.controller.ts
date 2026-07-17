@@ -20,7 +20,7 @@ import {
 } from 'class-validator';
 import { JwtAuthGuard } from '../../guards/jwt-auth.guard';
 import { TenantScopeGuard } from '../../guards/tenant-scope.guard';
-import { RolesGuard, RequireMinRole } from '../../guards/roles.guard';
+import { RolesGuard, RequireCapability } from '../../guards/roles.guard';
 import { CurrentUser } from '../../decorators';
 import { PaginationDto } from '../../dto/pagination.dto';
 import { BroadcastsService } from '../../../application/commands/broadcasts.service';
@@ -106,7 +106,7 @@ export class BroadcastsController {
   constructor(private readonly broadcasts: BroadcastsService) {}
 
   @Get()
-  @RequireMinRole('viewer')
+  @RequireCapability('messaging_read')
   async list(
     @Query() pagination: PaginationDto,
     @Query('organizationId') organizationId: string,
@@ -115,7 +115,7 @@ export class BroadcastsController {
   }
 
   @Get(':id')
-  @RequireMinRole('viewer')
+  @RequireCapability('messaging_read')
   async get(
     @Param('id') id: string,
     @Query('organizationId') organizationId: string,
@@ -127,7 +127,7 @@ export class BroadcastsController {
   }
 
   @Post('preview')
-  @RequireMinRole('agent')
+  @RequireCapability('messaging_write')
   async preview(@Body() dto: CreateBroadcastDto) {
     return {
       data: await this.broadcasts.previewAudience(dto.organizationId, dto),
@@ -136,7 +136,7 @@ export class BroadcastsController {
   }
 
   @Post()
-  @RequireMinRole('agent')
+  @RequireCapability('messaging_write')
   async create(
     @Body() dto: CreateBroadcastDto,
     @CurrentUser() user: { userId?: string; sub?: string },
@@ -151,7 +151,7 @@ export class BroadcastsController {
   }
 
   @Post(':id/start')
-  @RequireMinRole('agent')
+  @RequireCapability('messaging_write')
   async start(
     @Param('id') id: string,
     @Query('organizationId') organizationId: string,
@@ -163,7 +163,7 @@ export class BroadcastsController {
   }
 
   @Post(':id/cancel')
-  @RequireMinRole('agent')
+  @RequireCapability('messaging_write')
   async cancel(
     @Param('id') id: string,
     @Query('organizationId') organizationId: string,

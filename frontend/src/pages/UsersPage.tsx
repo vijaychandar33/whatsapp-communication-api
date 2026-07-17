@@ -10,7 +10,7 @@ import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Badge } from '../components/ui/Badge';
-import { formatDate } from '../lib/utils';
+import { cn, fieldControlClass, fieldLabelClass, formatDate } from '../lib/utils';
 
 type Member = {
   id: string;
@@ -21,6 +21,15 @@ type Member = {
   createdAt?: string;
 };
 
+type InviteRole = 'ADMIN' | 'DEVELOPER' | 'STAFF';
+type MemberRole = 'admin' | 'developer' | 'staff';
+
+const ROLE_LABELS: Record<MemberRole, string> = {
+  admin: 'Admin',
+  developer: 'Developer',
+  staff: 'Staff',
+};
+
 export function UsersPage() {
   const { user } = useAuth();
   const orgId = user?.organizationId;
@@ -28,9 +37,7 @@ export function UsersPage() {
   const queryClient = useQueryClient();
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
-  const [inviteRole, setInviteRole] = useState<'ADMIN' | 'AGENT' | 'VIEWER'>(
-    'AGENT',
-  );
+  const [inviteRole, setInviteRole] = useState<InviteRole>('STAFF');
   const [inviteEmail, setInviteEmail] = useState('');
 
   const members = useQuery({
@@ -61,13 +68,7 @@ export function UsersPage() {
   });
 
   const changeRole = useMutation({
-    mutationFn: async ({
-      id,
-      role,
-    }: {
-      id: string;
-      role: 'admin' | 'agent' | 'viewer';
-    }) => {
+    mutationFn: async ({ id, role }: { id: string; role: MemberRole }) => {
       await api.patch(`/admin/v1/users/${id}/role`, { role });
     },
     onSuccess: async () => {
@@ -90,7 +91,7 @@ export function UsersPage() {
         data: { invitePath: string; token: string };
       }>('/admin/v1/invitations', {
         organizationId: orgId,
-        email: inviteEmail || undefined,
+        email: inviteEmail.trim(),
         role: inviteRole,
       });
       return data.data;
@@ -98,6 +99,7 @@ export function UsersPage() {
     onSuccess: async (result) => {
       setInviteUrl(`${window.location.origin}${result.invitePath}`);
       setInviteEmail('');
+      setInviteRole('STAFF');
       await queryClient.invalidateQueries({ queryKey: ['invitations'] });
     },
   });
@@ -123,22 +125,34 @@ export function UsersPage() {
     );
   }
 
+  if (!canManageMembers) {
+    return (
+      <div>
+        <PageHeader title="Users" description="Workspace members and invites." />
+        <EmptyState
+          title="Owner only"
+          description="Only the workspace owner can manage teammates."
+        />
+      </div>
+    );
+  }
+
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteEmail.trim());
+
   return (
     <div>
       <PageHeader
         title="Users"
         description="Invite teammates and manage workspace roles."
         actions={
-          canManageMembers ? (
-            <Button
-              onClick={() => {
-                setInviteOpen(true);
-                setInviteUrl(null);
-              }}
-            >
-              Invite
-            </Button>
-          ) : undefined
+          <Button
+            onClick={() => {
+              setInviteOpen(true);
+              setInviteUrl(null);
+            }}
+          >
+            Invite
+          </Button>
         }
       />
 
@@ -161,40 +175,44 @@ export function UsersPage() {
               (members.data || []).map((m) => (
                 <div
                   key={m.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm dark:border-slate-700"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700"
                 >
                   <div>
-                    <div className="font-medium text-slate-900 dark:text-slate-100">
+                    <div className="font-medium text-zinc-900 dark:text-zinc-100">
                       {[m.firstName, m.lastName].filter(Boolean).join(' ') ||
                         m.email}
                     </div>
-                    <div className="text-xs text-slate-500">{m.email}</div>
+                    <div className="text-xs text-zinc-500">{m.email}</div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {canManageMembers && m.workspaceRole !== 'owner' ? (
+                    {m.workspaceRole !== 'owner' ? (
                       <select
-                        className="rounded border border-slate-300 bg-white px-2 py-1 text-xs dark:border-slate-600 dark:bg-slate-900"
-                        value={m.workspaceRole || 'agent'}
+                        className={cn(fieldControlClass, 'h-8 w-auto px-2 text-xs')}
+                        value={
+                          m.workspaceRole === 'admin' ||
+                          m.workspaceRole === 'developer' ||
+                          m.workspaceRole === 'staff'
+                            ? m.workspaceRole
+                            : 'staff'
+                        }
                         onChange={(e) =>
                           changeRole.mutate({
                             id: m.id,
-                            role: e.target.value as
-                              | 'admin'
-                              | 'agent'
-                              | 'viewer',
+                            role: e.target.value as MemberRole,
                           })
                         }
                       >
-                        <option value="admin">admin</option>
-                        <option value="agent">agent</option>
-                        <option value="viewer">viewer</option>
+                        <option value="admin">Admin</option>
+                        <option value="developer">Developer</option>
+                        <option value="staff">Staff</option>
                       </select>
                     ) : (
-                      <Badge>{m.workspaceRole || '—'}</Badge>
+                      <Badge>Owner</Badge>
                     )}
-                    {canManageMembers && m.workspaceRole !== 'owner' ? (
+                    {m.workspaceRole !== 'owner' ? (
                       <Button
                         variant="secondary"
+                        size="sm"
                         onClick={() => remove.mutate(m.id)}
                       >
                         Remove
@@ -207,36 +225,34 @@ export function UsersPage() {
           </CardContent>
         </Card>
 
-        {canManageMembers ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Pending invites</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {(invites.data || []).length === 0 ? (
-                <EmptyState title="No pending invites" />
-              ) : (
-                (invites.data || []).map((i) => (
-                  <div
-                    key={i.id}
-                    className="flex items-center justify-between gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm dark:border-slate-700"
-                  >
-                    <div>
-                      {i.email || 'Open invite'} · {i.role} · expires{' '}
-                      {formatDate(i.expiresAt)}
-                    </div>
-                    <Button
-                      variant="secondary"
-                      onClick={() => revokeInvite.mutate(i.id)}
-                    >
-                      Revoke
-                    </Button>
+        <Card>
+          <CardHeader>
+            <CardTitle>Pending invites</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {(invites.data || []).length === 0 ? (
+              <EmptyState title="No pending invites" />
+            ) : (
+              (invites.data || []).map((i) => (
+                <div
+                  key={i.id}
+                  className="flex items-center justify-between gap-2 rounded-md border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-700"
+                >
+                  <div>
+                    {i.email} · {i.role} · expires {formatDate(i.expiresAt)}
                   </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        ) : null}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => revokeInvite.mutate(i.id)}
+                  >
+                    Revoke
+                  </Button>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       <Modal
@@ -263,6 +279,7 @@ export function UsersPage() {
               </Button>
               <Button
                 loading={createInvite.isPending}
+                disabled={!emailOk}
                 onClick={() => createInvite.mutate()}
               >
                 Create invite link
@@ -273,34 +290,41 @@ export function UsersPage() {
       >
         {inviteUrl ? (
           <div className="space-y-2">
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
               Copy this link now — it will not be shown again.
             </p>
-            <code className="block break-all rounded bg-slate-50 p-2 text-xs dark:bg-slate-800">
+            <code className="block break-all rounded bg-zinc-50 p-2 text-xs dark:bg-zinc-800">
               {inviteUrl}
             </code>
           </div>
         ) : (
           <div className="space-y-3">
             <Input
-              label="Email (optional)"
+              label="Email"
+              type="email"
+              required
               value={inviteEmail}
               onChange={(e) => setInviteEmail(e.target.value)}
+              placeholder="teammate@company.com"
             />
-            <div>
-              <label className="mb-1 block text-sm font-medium">Role</label>
+            <label className="block space-y-1.5">
+              <span className={fieldLabelClass}>Role</span>
               <select
-                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900"
+                className={cn(fieldControlClass, 'h-10 px-3')}
                 value={inviteRole}
                 onChange={(e) =>
-                  setInviteRole(e.target.value as typeof inviteRole)
+                  setInviteRole(e.target.value as InviteRole)
                 }
               >
-                <option value="ADMIN">admin</option>
-                <option value="AGENT">agent</option>
-                <option value="VIEWER">viewer</option>
+                <option value="ADMIN">Admin — all access except users</option>
+                <option value="DEVELOPER">Developer — API keys only</option>
+                <option value="STAFF">Staff — messaging only</option>
               </select>
-            </div>
+            </label>
+            <p className="text-xs text-zinc-500">
+              Owner is not invitable here — ownership is transferred separately.
+              Roles: Admin ({ROLE_LABELS.admin}), Developer, Staff.
+            </p>
             {createInvite.isError ? (
               <p className="text-sm text-red-600">
                 {getErrorMessage(createInvite.error)}

@@ -1,6 +1,11 @@
 import { useMemo } from 'react';
 import { useAuth } from './useAuth';
-import { WorkspaceRole, hasMinRole, highestRole } from '../lib/roles';
+import {
+  WorkspaceCapability,
+  WorkspaceRole,
+  hasCapability,
+  highestRole,
+} from '../lib/roles';
 
 export function useCan() {
   const { user } = useAuth();
@@ -12,10 +17,13 @@ export function useCan() {
   return useMemo(
     () => ({
       role: workspaceRole,
-      can: (min: WorkspaceRole) => hasMinRole(roles, min),
-      canManageMembers: hasMinRole(roles, 'admin'),
-      canEditSettings: hasMinRole(roles, 'admin'),
-      canSendMessages: hasMinRole(roles, 'agent'),
+      can: (capability: WorkspaceCapability) =>
+        hasCapability(roles, capability),
+      canManageMembers: hasCapability(roles, 'members'),
+      canManageApiKeys: hasCapability(roles, 'api_keys'),
+      canEditSettings: hasCapability(roles, 'settings'),
+      canSendMessages: hasCapability(roles, 'messaging_write'),
+      canAccessWorkspace: hasCapability(roles, 'workspace'),
       isOwner: workspaceRole === 'owner',
       isSystem: user?.organization?.type === 'SYSTEM',
     }),

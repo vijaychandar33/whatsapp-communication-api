@@ -11,7 +11,6 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { InvitationRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import {
   IsEmail,
@@ -31,7 +30,7 @@ import {
   RequestUser,
   TenantScopeGuard,
 } from '../../guards/tenant-scope.guard';
-import { RolesGuard, RequireMinRole } from '../../guards/roles.guard';
+import { RolesGuard, RequireCapability } from '../../guards/roles.guard';
 import { CurrentUser, Public } from '../../decorators';
 import { PaginationDto } from '../../dto/pagination.dto';
 import {
@@ -55,6 +54,7 @@ import {
 import { AuthService, API_KEY_SCOPES } from '../../../modules/auth/auth.service';
 import { MembersService } from '../../../application/commands/members.service';
 import { Type } from 'class-transformer';
+import { InvitationRole } from '@prisma/client';
 import { IsArray } from 'class-validator';
 
 export class CreateApiKeyDto {
@@ -82,9 +82,9 @@ export class CreateApiKeyDto {
 }
 
 export class PatchUserRoleDto {
-  @ApiProperty({ enum: ['admin', 'agent', 'viewer'] })
-  @IsEnum(['admin', 'agent', 'viewer'] as const)
-  role!: 'admin' | 'agent' | 'viewer';
+  @ApiProperty({ enum: ['admin', 'developer', 'staff'] })
+  @IsEnum(['admin', 'developer', 'staff'] as const)
+  role!: 'admin' | 'developer' | 'staff';
 }
 
 export class RenameOrganizationDto {
@@ -105,15 +105,13 @@ export class CreateInvitationDto {
   @IsUUID()
   organizationId!: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
+  @ApiProperty()
   @IsEmail({ require_tld: false })
-  email?: string;
+  email!: string;
 
-  @ApiPropertyOptional({ enum: InvitationRole })
-  @IsOptional()
-  @IsEnum(InvitationRole)
-  role?: InvitationRole;
+  @ApiProperty({ enum: ['ADMIN', 'DEVELOPER', 'STAFF'] })
+  @IsEnum(['ADMIN', 'DEVELOPER', 'STAFF'] as const)
+  role!: 'ADMIN' | 'DEVELOPER' | 'STAFF';
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -192,7 +190,7 @@ export class OrganizationsController {
   }
 
   @Patch(':id')
-  @RequireMinRole('admin')
+  @RequireCapability('settings')
   async rename(
     @Param('id') id: string,
     @Body() dto: RenameOrganizationDto,
@@ -285,7 +283,7 @@ export class UsersController {
   }
 
   @Patch(':id/role')
-  @RequireMinRole('admin')
+  @RequireCapability('members')
   async changeRole(
     @Param('id') id: string,
     @Body() dto: PatchUserRoleDto,
@@ -298,7 +296,7 @@ export class UsersController {
   }
 
   @Delete(':id')
-  @RequireMinRole('admin')
+  @RequireCapability('members')
   async remove(
     @Param('id') id: string,
     @CurrentUser() user: RequestUser,
@@ -310,7 +308,7 @@ export class UsersController {
   }
 
   @Post()
-  @RequireMinRole('admin')
+  @RequireCapability('members')
   async create(@Body() dto: CreateUserDto) {
     const passwordHash = await bcrypt.hash(dto.password, 12);
     const created = await this.createUser.execute({
@@ -375,7 +373,7 @@ export class ApiKeysController {
   ) {}
 
   @Get()
-  @RequireMinRole('admin')
+  @RequireCapability('api_keys')
   async list(
     @Query() pagination: PaginationDto,
     @Query('organizationId') organizationId: string,
@@ -384,7 +382,7 @@ export class ApiKeysController {
   }
 
   @Post()
-  @RequireMinRole('admin')
+  @RequireCapability('api_keys')
   async create(@Body() dto: CreateApiKeyDto) {
     const result = await this.auth.createApiKeyPlain(
       dto.organizationId,
@@ -403,7 +401,7 @@ export class ApiKeysController {
   }
 
   @Delete(':id')
-  @RequireMinRole('admin')
+  @RequireCapability('api_keys')
   async revoke(
     @Param('id') id: string,
     @Query('organizationId') organizationId: string,
@@ -451,7 +449,7 @@ export class InvitationsController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, TenantScopeGuard, RolesGuard)
-  @RequireMinRole('admin')
+  @RequireCapability('members')
   @Get()
   async list(@Query('organizationId') organizationId: string) {
     return {
@@ -462,21 +460,24 @@ export class InvitationsController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, TenantScopeGuard, RolesGuard)
-  @RequireMinRole('admin')
+  @RequireCapability('members')
   @Post()
   async create(
     @Body() dto: CreateInvitationDto,
     @CurrentUser() user: RequestUser,
   ) {
     return {
-      data: await this.members.createInvitation(user.userId, dto),
+      data: await this.members.createInvitation(user.userId, {
+        ...dto,
+        role: dto.role as InvitationRole,
+      }),
       message: 'Invitation created',
     };
   }
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, TenantScopeGuard, RolesGuard)
-  @RequireMinRole('admin')
+  @RequireCapability('members')
   @Delete(':id')
   async revoke(
     @Param('id') id: string,

@@ -164,6 +164,8 @@ enum LogLevel {
 
 enum InvitationRole {
   ADMIN
+  DEVELOPER
+  STAFF
   AGENT
   VIEWER
 }
@@ -310,7 +312,7 @@ model Invitation {
   id               String         @id @default(uuid())
   organizationId   String         @map("organization_id")
   email            String?
-  role             InvitationRole @default(AGENT)
+  role             InvitationRole @default(STAFF)
   tokenHash        String         @unique @map("token_hash")
   label            String?
   createdByUserId  String         @map("created_by_user_id")

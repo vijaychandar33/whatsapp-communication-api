@@ -79,10 +79,10 @@ async function main(): Promise<void> {
 
   // Ensure fixed workspace roles
   const roleNames = [
-    { name: 'owner', description: 'Full ownership' },
-    { name: 'admin', description: 'Manage members and settings' },
-    { name: 'agent', description: 'Operational messaging access' },
-    { name: 'viewer', description: 'Read-only access' },
+    { name: 'owner', description: 'Full access including user management' },
+    { name: 'admin', description: 'Full access except user management' },
+    { name: 'developer', description: 'API keys only' },
+    { name: 'staff', description: 'Messaging only' },
   ] as const;
 
   const roleIds: Record<string, string> = {};
@@ -106,20 +106,39 @@ async function main(): Promise<void> {
 
   const ownerRoleId = roleIds.owner;
   const allPermissions = await prisma.permission.findMany();
-  for (const roleId of Object.values(roleIds)) {
-    for (const permission of allPermissions) {
-      await prisma.rolePermission.upsert({
-        where: {
-          roleId_permissionId: {
-            roleId,
-            permissionId: permission.id,
-          },
-        },
-        create: {
-          roleId,
-          permissionId: permission.id,
-        },
-        update: {},
+  const byCode = new Map(allPermissions.map((p) => [p.code, p]));
+  const adminExcluded = new Set([
+    'users:read',
+    'users:write',
+    'roles:read',
+    'roles:write',
+  ]);
+  const rolePerms: Record<string, string[] | 'ALL' | 'ALL_EXCEPT'> = {
+    owner: 'ALL',
+    admin: 'ALL_EXCEPT',
+    developer: ['api_keys:read', 'api_keys:write'],
+    staff: [
+      'messages:read',
+      'messages:write',
+      'accounts:read',
+      'webhooks:read',
+    ],
+  };
+
+  for (const [name, roleId] of Object.entries(roleIds)) {
+    await prisma.rolePermission.deleteMany({ where: { roleId } });
+    const codes = rolePerms[name] ?? [];
+    let perms = allPermissions;
+    if (codes === 'ALL_EXCEPT') {
+      perms = allPermissions.filter((p) => !adminExcluded.has(p.code));
+    } else if (codes !== 'ALL') {
+      perms = codes
+        .map((c) => byCode.get(c))
+        .filter((p): p is (typeof allPermissions)[number] => Boolean(p));
+    }
+    for (const permission of perms) {
+      await prisma.rolePermission.create({
+        data: { roleId, permissionId: permission.id },
       });
     }
   }

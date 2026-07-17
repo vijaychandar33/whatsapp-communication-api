@@ -38,7 +38,7 @@ type ApiKeyRow = {
 export function ApiKeysPage() {
   const { user } = useAuth();
   const orgId = user?.organizationId;
-  const { canManageMembers: canManage } = useCan();
+  const { canManageApiKeys: canManage } = useCan();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [createdKey, setCreatedKey] = useState<string | null>(null);

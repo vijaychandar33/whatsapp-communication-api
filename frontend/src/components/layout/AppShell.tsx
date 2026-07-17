@@ -24,12 +24,14 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../hooks/useAuth';
 import { useRealtime } from '../../hooks/useRealtime';
+import { useCan } from '../../hooks/useCan';
 import { api } from '../../lib/api';
 import {
   applyTheme,
   readStoredTheme,
   type ThemePreference,
 } from '../../lib/theme';
+import { navAllowed } from '../../lib/roles';
 import { cn } from '../../lib/utils';
 
 const nav = [
@@ -51,11 +53,14 @@ const nav = [
 
 export function AppShell() {
   const { user, logout, isAuthenticated } = useAuth();
+  const { role } = useCan();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [theme, setTheme] = useState<ThemePreference>(() => readStoredTheme());
   useRealtime();
+
+  const visibleNav = nav.filter((item) => navAllowed(item.to, role));
 
   const prefs = useQuery({
     queryKey: ['preferences'],
@@ -119,7 +124,7 @@ export function AppShell() {
       </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
-        {nav.map(({ to, label, icon: Icon, end }) => (
+        {visibleNav.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
             to={to}

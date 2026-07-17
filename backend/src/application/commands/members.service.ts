@@ -12,8 +12,8 @@ import { SystemClock } from '../../infrastructure/clock/system-clock';
 import { NotFoundError, ValidationError } from '../../domain/errors';
 import { ensureWorkspaceRoles } from './ensure-workspace-roles';
 import {
-  WorkspaceRole,
-  hasMinRole,
+  InviteableWorkspaceRole,
+  hasCapability,
   highestRole,
   inviteRoleToWorkspace,
 } from '../../domain/auth/workspace-roles';
@@ -54,7 +54,7 @@ export class MembersService {
   async changeRole(
     actorUserId: string,
     targetUserId: string,
-    role: Exclude<WorkspaceRole, 'owner'>,
+    role: InviteableWorkspaceRole,
   ) {
     const actor = await this.loadUser(actorUserId);
     const target = await this.loadUser(targetUserId);
@@ -62,8 +62,8 @@ export class MembersService {
     if (actor.organizationId !== target.organizationId) {
       throw new ForbiddenException('Cross-tenant access denied');
     }
-    if (!hasMinRole(actor.roleNames, 'admin')) {
-      throw new ForbiddenException('Requires admin role or higher');
+    if (!hasCapability(actor.roleNames, 'members')) {
+      throw new ForbiddenException('Requires owner role');
     }
 
     const targetRole = highestRole(target.roleNames);
@@ -93,8 +93,8 @@ export class MembersService {
     if (actor.organizationId !== target.organizationId) {
       throw new ForbiddenException('Cross-tenant access denied');
     }
-    if (!hasMinRole(actor.roleNames, 'admin')) {
-      throw new ForbiddenException('Requires admin role or higher');
+    if (!hasCapability(actor.roleNames, 'members')) {
+      throw new ForbiddenException('Requires owner role');
     }
     if (actorUserId === targetUserId) {
       throw new ForbiddenException('Cannot remove yourself');
@@ -160,7 +160,7 @@ export class MembersService {
     if (actor.organizationId !== organizationId && actor.orgType !== 'SYSTEM') {
       throw new ForbiddenException('Cross-tenant access denied');
     }
-    if (!hasMinRole(actor.roleNames, 'admin') && actor.orgType !== 'SYSTEM') {
+    if (!hasCapability(actor.roleNames, 'settings') && actor.orgType !== 'SYSTEM') {
       throw new ForbiddenException('Requires admin role or higher');
     }
     return this.prisma.organization.update({
@@ -195,7 +195,7 @@ export class MembersService {
     actorUserId: string,
     input: {
       organizationId: string;
-      email?: string;
+      email: string;
       role?: InvitationRole;
       label?: string;
       expiresInDays?: number;
@@ -208,11 +208,26 @@ export class MembersService {
     ) {
       throw new ForbiddenException('Cross-tenant access denied');
     }
-    if (!hasMinRole(actor.roleNames, 'admin')) {
-      throw new ForbiddenException('Requires admin role or higher');
+    if (!hasCapability(actor.roleNames, 'members')) {
+      throw new ForbiddenException('Requires owner role');
     }
 
-    const role = input.role ?? InvitationRole.AGENT;
+    const email = input.email?.toLowerCase().trim();
+    if (!email) {
+      throw new ValidationError('Email is required');
+    }
+
+    const role = input.role ?? InvitationRole.STAFF;
+    if (
+      role !== InvitationRole.ADMIN &&
+      role !== InvitationRole.DEVELOPER &&
+      role !== InvitationRole.STAFF
+    ) {
+      throw new ValidationError(
+        'Invite role must be ADMIN, DEVELOPER, or STAFF',
+      );
+    }
+
     const days = input.expiresInDays ?? 7;
     if (days < 1 || days > 30) {
       throw new ValidationError('expiresInDays must be between 1 and 30');
@@ -225,7 +240,7 @@ export class MembersService {
       data: {
         id: this.identifiers.generate(),
         organizationId: input.organizationId,
-        email: input.email?.toLowerCase().trim() || null,
+        email,
         role,
         label: input.label?.trim() || null,
         tokenHash,
@@ -251,8 +266,8 @@ export class MembersService {
 
   async revokeInvitation(actorUserId: string, invitationId: string) {
     const actor = await this.loadUser(actorUserId);
-    if (!hasMinRole(actor.roleNames, 'admin')) {
-      throw new ForbiddenException('Requires admin role or higher');
+    if (!hasCapability(actor.roleNames, 'members')) {
+      throw new ForbiddenException('Requires owner role');
     }
     const invite = await this.prisma.invitation.findFirst({
       where: { id: invitationId },

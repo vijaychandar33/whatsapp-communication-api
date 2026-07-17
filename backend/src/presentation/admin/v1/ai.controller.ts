@@ -30,7 +30,7 @@ import {
 } from 'class-validator';
 import { JwtAuthGuard } from '../../guards/jwt-auth.guard';
 import { TenantScopeGuard } from '../../guards/tenant-scope.guard';
-import { RolesGuard, RequireMinRole } from '../../guards/roles.guard';
+import { RolesGuard, RequireCapability } from '../../guards/roles.guard';
 import { CurrentUser } from '../../decorators';
 import { AiService } from '../../../application/ai/ai.service';
 
@@ -162,7 +162,7 @@ export class AiController {
   constructor(private readonly ai: AiService) {}
 
   @Get('config')
-  @RequireMinRole('viewer')
+  @RequireCapability('messaging_read')
   async getConfig(@Query('organizationId') organizationId: string) {
     return {
       data: await this.ai.getConfig(organizationId),
@@ -171,7 +171,7 @@ export class AiController {
   }
 
   @Put('config')
-  @RequireMinRole('admin')
+  @RequireCapability('workspace')
   async upsertConfig(@Body() dto: UpsertAiConfigDto) {
     return {
       data: await this.ai.upsertConfig(dto),
@@ -180,7 +180,7 @@ export class AiController {
   }
 
   @Delete('config')
-  @RequireMinRole('admin')
+  @RequireCapability('workspace')
   async deleteConfig(@Query('organizationId') organizationId: string) {
     return {
       data: await this.ai.deleteConfig(organizationId),
@@ -189,7 +189,7 @@ export class AiController {
   }
 
   @Post('test')
-  @RequireMinRole('admin')
+  @RequireCapability('workspace')
   async test(@Body() dto: TestAiDto) {
     return {
       data: await this.ai.testConfig(dto.organizationId, dto),
@@ -198,7 +198,7 @@ export class AiController {
   }
 
   @Get('knowledge')
-  @RequireMinRole('viewer')
+  @RequireCapability('messaging_read')
   async listKnowledge(@Query('organizationId') organizationId: string) {
     return {
       data: await this.ai.listDocuments(organizationId),
@@ -207,7 +207,7 @@ export class AiController {
   }
 
   @Post('knowledge')
-  @RequireMinRole('admin')
+  @RequireCapability('workspace')
   async createKnowledge(@Body() dto: CreateKnowledgeDto) {
     return {
       data: await this.ai.createDocument(
@@ -220,7 +220,7 @@ export class AiController {
   }
 
   @Post('knowledge/reindex')
-  @RequireMinRole('admin')
+  @RequireCapability('workspace')
   async reindex(@Body() body: { organizationId: string }) {
     return {
       data: await this.ai.reindex(body.organizationId),
@@ -229,7 +229,7 @@ export class AiController {
   }
 
   @Get('knowledge/:id')
-  @RequireMinRole('viewer')
+  @RequireCapability('messaging_read')
   async getKnowledge(
     @Param('id') id: string,
     @Query('organizationId') organizationId: string,
@@ -241,7 +241,7 @@ export class AiController {
   }
 
   @Patch('knowledge/:id')
-  @RequireMinRole('admin')
+  @RequireCapability('workspace')
   async updateKnowledge(
     @Param('id') id: string,
     @Query('organizationId') organizationId: string,
@@ -254,7 +254,7 @@ export class AiController {
   }
 
   @Delete('knowledge/:id')
-  @RequireMinRole('admin')
+  @RequireCapability('workspace')
   async deleteKnowledge(
     @Param('id') id: string,
     @Query('organizationId') organizationId: string,
@@ -266,7 +266,7 @@ export class AiController {
   }
 
   @Post('draft')
-  @RequireMinRole('agent')
+  @RequireCapability('messaging_write')
   async draft(@Body() dto: DraftDto) {
     return {
       data: await this.ai.draft(dto.organizationId, dto.conversationId),
@@ -275,7 +275,7 @@ export class AiController {
   }
 
   @Post('conversations/:id/autoreply')
-  @RequireMinRole('agent')
+  @RequireCapability('messaging_write')
   async autoreply(
     @Param('id') id: string,
     @Query('organizationId') organizationId: string,
@@ -294,7 +294,7 @@ export class AiController {
   }
 
   @Get('usage')
-  @RequireMinRole('admin')
+  @RequireCapability('workspace')
   async usage(
     @Query('organizationId') organizationId: string,
     @Query('days') days?: string,

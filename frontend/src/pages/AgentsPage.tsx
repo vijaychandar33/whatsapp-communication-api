@@ -70,10 +70,10 @@ export function AgentsPage() {
       </div>
 
       {tab === 'setup' ? (
-        <SetupTab orgId={orgId} canAdmin={can.can('admin')} />
+        <SetupTab orgId={orgId} canAdmin={can.canAccessWorkspace} />
       ) : null}
       {tab === 'knowledge' ? (
-        <KnowledgeTab orgId={orgId} canAdmin={can.can('admin')} />
+        <KnowledgeTab orgId={orgId} canAdmin={can.canAccessWorkspace} />
       ) : null}
       {tab === 'usage' ? <UsageTab orgId={orgId} /> : null}
     </div>

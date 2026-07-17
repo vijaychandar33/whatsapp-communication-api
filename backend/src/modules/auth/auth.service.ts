@@ -458,6 +458,19 @@ export class AuthService {
     },
     meta?: { userAgent?: string; ipAddress?: string },
   ) {
+    await ensureWorkspaceRoles(this.prisma, user.organizationId, () =>
+      this.identifiers.generate(),
+    );
+    const fresh = await this.prisma.user.findFirst({
+      where: { id: user.id, deletedAt: null, status: 'ACTIVE' },
+      include: {
+        roles: { include: { role: true } },
+        organization: true,
+      },
+    });
+    if (!fresh) throw new UnauthorizedException();
+    user = fresh;
+
     const payload = {
       sub: user.id,
       email: user.email,
