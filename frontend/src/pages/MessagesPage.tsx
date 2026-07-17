@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -15,7 +15,7 @@ import { Table, THead, TBody, TR, TH, TD } from '../components/ui/Table';
 import { Pagination } from '../components/ui/Pagination';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Badge, statusTone } from '../components/ui/Badge';
-import { formatDate, truncate } from '../lib/utils';
+import { cn, fieldControlClass, fieldLabelClass, formatDate, truncate } from '../lib/utils';
 
 type Message = {
   id: string;
@@ -37,10 +37,19 @@ type Account = {
   phoneNumber?: string;
 };
 
+type Template = {
+  id: string;
+  name?: string;
+  language?: string;
+  status?: string;
+  body?: string | null;
+  category?: string;
+};
+
 const sendSchema = z.object({
   communicationAccountId: z.string().uuid('Select an account'),
   to: z.string().min(5, 'Recipient phone required'),
-  body: z.string().min(1, 'Message body required'),
+  templateId: z.string().min(1, 'Select an approved template'),
 });
 
 type SendValues = z.infer<typeof sendSchema>;
@@ -77,14 +86,32 @@ export function MessagesPage() {
     },
   });
 
+  const templates = useQuery({
+    queryKey: ['templates', 'send-picker', orgId],
+    enabled: Boolean(orgId) && open,
+    queryFn: async () => {
+      const { data } = await api.get<{ data: Template[] }>('/admin/v1/templates', {
+        params: { organizationId: orgId, limit: 100 },
+      });
+      const rows = Array.isArray(data.data) ? data.data : [];
+      return rows.filter((t) => (t.status || '').toUpperCase() === 'APPROVED');
+    },
+  });
+
   const form = useForm<SendValues>({
     resolver: zodResolver(sendSchema),
     defaultValues: {
       communicationAccountId: '',
       to: '',
-      body: '',
+      templateId: '',
     },
   });
+
+  const selectedTemplateId = form.watch('templateId');
+  const selectedTemplate = useMemo(
+    () => (templates.data || []).find((t) => t.id === selectedTemplateId),
+    [templates.data, selectedTemplateId],
+  );
 
   useEffect(() => {
     const first = accounts.data?.find((a) => a.connectionStatus === 'CONNECTED');
@@ -93,13 +120,19 @@ export function MessagesPage() {
 
   const send = useMutation({
     mutationFn: async (values: SendValues) => {
+      const template = (templates.data || []).find((t) => t.id === values.templateId);
+      if (!template?.name) {
+        throw new Error('Selected template not found');
+      }
       const { data } = await api.post(
         '/admin/v1/messages',
         {
           communicationAccountId: values.communicationAccountId,
           to: values.to,
-          body: values.body,
-          messageType: 'TEXT',
+          messageType: 'TEMPLATE',
+          templateName: template.name,
+          templateLanguage: template.language || 'en_US',
+          body: template.body || undefined,
         },
         { params: { organizationId: orgId } },
       );
@@ -107,7 +140,7 @@ export function MessagesPage() {
     },
     onSuccess: async () => {
       setOpen(false);
-      form.reset({ communicationAccountId: '', to: '', body: '' });
+      form.reset({ communicationAccountId: '', to: '', templateId: '' });
       await queryClient.invalidateQueries({ queryKey: ['messages'] });
       await queryClient.invalidateQueries({ queryKey: ['conversations'] });
       await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
@@ -136,7 +169,7 @@ export function MessagesPage() {
       />
 
       <Card>
-        <CardContent className="border-b border-slate-100 py-4">
+        <CardContent className="border-b border-zinc-100 py-4 dark:border-zinc-800">
           <Input
             placeholder="Search by recipient, status, or id…"
             value={search}
@@ -200,7 +233,7 @@ export function MessagesPage() {
 
       <Modal
         open={open}
-        title="Send WhatsApp message"
+        title="Send WhatsApp template"
         onClose={() => setOpen(false)}
         footer={
           <>
@@ -209,20 +242,23 @@ export function MessagesPage() {
             </Button>
             <Button
               loading={send.isPending}
+              disabled={!selectedTemplate}
               onClick={form.handleSubmit((values) => send.mutateAsync(values))}
             >
-              Send
+              Send template
             </Button>
           </>
         }
       >
         <form className="space-y-4">
+          <p className="text-xs text-zinc-500">
+            Cold contacts (no open 24h session) require an APPROVED Meta template.
+            Free-text is only allowed inside an active conversation (use Inbox).
+          </p>
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">
-              Account
-            </label>
+            <label className={cn(fieldLabelClass, 'mb-1 block')}>Account</label>
             <select
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className={cn(fieldControlClass, 'h-10 px-3')}
               {...form.register('communicationAccountId')}
             >
               <option value="">Select account…</option>
@@ -245,11 +281,42 @@ export function MessagesPage() {
             error={form.formState.errors.to?.message}
             {...form.register('to')}
           />
-          <Input
-            label="Message"
-            error={form.formState.errors.body?.message}
-            {...form.register('body')}
-          />
+          <div>
+            <label className={cn(fieldLabelClass, 'mb-1 block')}>
+              Message template
+            </label>
+            <select
+              className={cn(fieldControlClass, 'h-10 px-3')}
+              {...form.register('templateId')}
+            >
+              <option value="">Select approved template…</option>
+              {(templates.data || []).map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} ({t.language}) · {t.category || '—'}
+                </option>
+              ))}
+            </select>
+            {form.formState.errors.templateId ? (
+              <p className="mt-1 text-xs text-red-600">
+                {form.formState.errors.templateId.message}
+              </p>
+            ) : null}
+            {templates.isSuccess && (templates.data || []).length === 0 ? (
+              <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                No APPROVED templates yet. Create/sync one under Templates first.
+              </p>
+            ) : null}
+          </div>
+          {selectedTemplate ? (
+            <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-zinc-700 dark:bg-zinc-900">
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                Preview · {selectedTemplate.language}
+              </div>
+              <div className="whitespace-pre-wrap text-zinc-800 dark:text-zinc-100">
+                {selectedTemplate.body || '(no body text)'}
+              </div>
+            </div>
+          ) : null}
           {send.isError ? (
             <p className="text-sm text-red-600">{getErrorMessage(send.error)}</p>
           ) : null}
