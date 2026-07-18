@@ -8,10 +8,9 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { ChannelCode } from '@prisma/client';
 import { JwtAuthGuard } from '../../guards/jwt-auth.guard';
 import { TenantScopeGuard } from '../../guards/tenant-scope.guard';
-import { PaginationDto } from '../../dto/pagination.dto';
+import { ListTemplatesQueryDto } from '../../dto/pagination.dto';
 import {
   CreateTemplateHandler,
   RefreshTemplateStatusHandler,
@@ -37,17 +36,12 @@ export class TemplatesController {
   ) {}
 
   @Get()
-  async list(
-    @Query() pagination: PaginationDto,
-    @Query('organizationId') organizationId: string,
-    @Query('channelCode') channelCode?: ChannelCode,
-    @Query('communicationAccountId') communicationAccountId?: string,
-  ) {
+  async list(@Query() query: ListTemplatesQueryDto) {
     return this.listTemplates.execute(
-      organizationId,
-      pagination,
-      channelCode,
-      communicationAccountId,
+      query.organizationId || '',
+      query,
+      query.channelCode,
+      query.communicationAccountId,
     );
   }
 

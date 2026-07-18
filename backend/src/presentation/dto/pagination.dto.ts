@@ -1,6 +1,15 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  Min,
+} from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ChannelCode, ConversationStatus } from '@prisma/client';
 
 export class PaginationDto {
   @ApiPropertyOptional({ default: 1, minimum: 1 })
@@ -31,6 +40,60 @@ export class PaginationDto {
   get take(): number {
     return this.limit ?? 20;
   }
+}
+
+/** Templates list — extra filters must be declared or ValidationPipe 400s. */
+export class ListTemplatesQueryDto extends PaginationDto {
+  @ApiPropertyOptional({ enum: ChannelCode })
+  @IsOptional()
+  @IsEnum(ChannelCode)
+  channelCode?: ChannelCode;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  communicationAccountId?: string;
+}
+
+export class ListConversationsQueryDto extends PaginationDto {
+  @ApiPropertyOptional({ enum: ConversationStatus })
+  @IsOptional()
+  @IsEnum(ConversationStatus)
+  status?: ConversationStatus;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  assignedToUserId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  unreadOnly?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  q?: string;
+}
+
+export class ListContactsQueryDto extends PaginationDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  q?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  tagId?: string;
+}
+
+export class ListMessagesQueryDto extends PaginationDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  conversationId?: string;
 }
 
 export interface PaginatedMeta {

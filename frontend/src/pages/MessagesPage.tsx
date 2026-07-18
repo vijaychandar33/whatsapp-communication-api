@@ -321,11 +321,19 @@ export function MessagesPage() {
                 {form.formState.errors.templateId.message}
               </p>
             ) : null}
+            {templates.isError ? (
+              <p className="mt-2 text-xs text-red-600">
+                Could not load templates: {getErrorMessage(templates.error)}
+              </p>
+            ) : null}
             {templates.isSuccess && (templates.data || []).length === 0 ? (
               <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
                 No APPROVED templates for this WhatsApp account. Sync/create under
                 Templates for the selected account.
               </p>
+            ) : null}
+            {templates.isFetching && !templates.data?.length ? (
+              <p className="mt-2 text-xs text-zinc-500">Loading templates…</p>
             ) : null}
           </div>
           {selectedTemplate ? (

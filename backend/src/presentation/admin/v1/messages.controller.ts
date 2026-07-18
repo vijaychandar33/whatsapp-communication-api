@@ -17,7 +17,7 @@ import {
 import { IdempotencyService } from '../../../infrastructure/idempotency/idempotency.service';
 import { JwtAuthGuard } from '../../guards/jwt-auth.guard';
 import { TenantScopeGuard } from '../../guards/tenant-scope.guard';
-import { PaginationDto } from '../../dto/pagination.dto';
+import { ListMessagesQueryDto } from '../../dto/pagination.dto';
 import { SendMessageDto } from '../../api/v1/dto/send-message.dto';
 
 @ApiTags('Admin Messages')
@@ -33,13 +33,9 @@ export class AdminMessagesController {
   ) {}
 
   @Get()
-  async list(
-    @Query() pagination: PaginationDto,
-    @Query('organizationId') organizationId: string,
-    @Query('conversationId') conversationId?: string,
-  ) {
-    return this.listMessages.execute(organizationId, pagination, {
-      conversationId,
+  async list(@Query() query: ListMessagesQueryDto) {
+    return this.listMessages.execute(query.organizationId || '', query, {
+      conversationId: query.conversationId,
     });
   }
 

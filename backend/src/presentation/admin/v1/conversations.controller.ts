@@ -12,7 +12,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ConversationStatus } from '@prisma/client';
 import { JwtAuthGuard } from '../../guards/jwt-auth.guard';
 import { TenantScopeGuard } from '../../guards/tenant-scope.guard';
-import { PaginationDto } from '../../dto/pagination.dto';
+import { ListConversationsQueryDto } from '../../dto/pagination.dto';
 import {
   MarkConversationReadHandler,
   PatchConversationHandler,
@@ -36,19 +36,12 @@ export class ConversationsController {
   ) {}
 
   @Get()
-  async list(
-    @Query() pagination: PaginationDto,
-    @Query('organizationId') organizationId: string,
-    @Query('status') status?: ConversationStatus,
-    @Query('assignedToUserId') assignedToUserId?: string,
-    @Query('unreadOnly') unreadOnly?: string,
-    @Query('q') q?: string,
-  ) {
-    return this.listConversations.execute(organizationId, pagination, {
-      status,
-      assignedToUserId,
-      unreadOnly: unreadOnly === 'true' || unreadOnly === '1',
-      q,
+  async list(@Query() query: ListConversationsQueryDto) {
+    return this.listConversations.execute(query.organizationId || '', query, {
+      status: query.status,
+      assignedToUserId: query.assignedToUserId,
+      unreadOnly: query.unreadOnly === 'true' || query.unreadOnly === '1',
+      q: query.q,
     });
   }
 

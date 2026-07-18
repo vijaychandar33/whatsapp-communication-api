@@ -12,7 +12,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../guards/jwt-auth.guard';
 import { TenantScopeGuard } from '../../guards/tenant-scope.guard';
-import { PaginationDto } from '../../dto/pagination.dto';
+import { ListContactsQueryDto } from '../../dto/pagination.dto';
 import {
   CreateContactHandler,
   DeleteContactHandler,
@@ -38,13 +38,11 @@ export class AdminContactsController {
   ) {}
 
   @Get()
-  async list(
-    @Query() pagination: PaginationDto,
-    @Query('organizationId') organizationId: string,
-    @Query('q') q?: string,
-    @Query('tagId') tagId?: string,
-  ) {
-    return this.listContacts.execute(organizationId, pagination, { q, tagId });
+  async list(@Query() query: ListContactsQueryDto) {
+    return this.listContacts.execute(query.organizationId || '', query, {
+      q: query.q,
+      tagId: query.tagId,
+    });
   }
 
   @Post()
