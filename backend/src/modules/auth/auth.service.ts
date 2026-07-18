@@ -191,7 +191,14 @@ export class AuthService {
         status: true,
         organizationId: true,
         organization: {
-          select: { id: true, name: true, slug: true, type: true },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            type: true,
+            status: true,
+            createdAt: true,
+          },
         },
         roles: { include: { role: true } },
         preferences: true,

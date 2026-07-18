@@ -28,7 +28,8 @@ export interface UpdateAccountCommand {
 
 export interface ConnectAccountCommand {
   id: string;
-  accessToken: string;
+  /** Omit to keep the existing encrypted token when reconfiguring. */
+  accessToken?: string;
   phoneNumberId?: string;
   businessAccountId?: string;
   verifyToken?: string;
@@ -115,32 +116,59 @@ export class ConnectAccountHandler {
       where: { id: cmd.id, deletedAt: null },
     });
     if (!account) throw new NotFoundError('CommunicationAccount', cmd.id);
-    if (!cmd.accessToken?.trim()) {
+
+    type StoredCredentials = {
+      accessToken?: string;
+      phoneNumberId?: string;
+      businessAccountId?: string;
+      verifyToken?: string;
+      webhookSecret?: string;
+    };
+
+    let existing: StoredCredentials = {};
+    if (account.credentialsEnc) {
+      try {
+        existing = JSON.parse(
+          this.secrets.decrypt(account.credentialsEnc),
+        ) as StoredCredentials;
+      } catch {
+        existing = {};
+      }
+    }
+
+    const accessToken = cmd.accessToken?.trim() || existing.accessToken;
+    if (!accessToken) {
       throw new ValidationError('accessToken is required');
     }
 
-    const credentials = {
-      accessToken: cmd.accessToken,
-      phoneNumberId: cmd.phoneNumberId,
-      businessAccountId: cmd.businessAccountId,
-      verifyToken: cmd.verifyToken,
-      webhookSecret: cmd.webhookSecret,
+    const credentials: StoredCredentials = {
+      accessToken,
+      phoneNumberId: cmd.phoneNumberId ?? existing.phoneNumberId,
+      businessAccountId: cmd.businessAccountId ?? existing.businessAccountId,
+      verifyToken: cmd.verifyToken ?? existing.verifyToken,
+      webhookSecret: cmd.webhookSecret ?? existing.webhookSecret,
     };
+
+    const prevMeta = (account.metadata as Record<string, unknown>) ?? {};
 
     return this.prisma.communicationAccount.update({
       where: { id: cmd.id },
       data: {
         credentialsEnc: this.secrets.encrypt(JSON.stringify(credentials)),
-        webhookVerifyToken: cmd.verifyToken ?? account.webhookVerifyToken,
+        webhookVerifyToken:
+          cmd.verifyToken ??
+          credentials.verifyToken ??
+          account.webhookVerifyToken,
         externalAccountId:
-          cmd.phoneNumberId ??
-          cmd.businessAccountId ??
+          credentials.phoneNumberId ??
+          credentials.businessAccountId ??
           account.externalAccountId,
         connectionStatus: AccountConnectionStatus.CONNECTED,
         metadata: {
-          ...((account.metadata as Record<string, unknown>) ?? {}),
-          businessAccountId: cmd.businessAccountId,
-          phoneNumberId: cmd.phoneNumberId,
+          ...prevMeta,
+          businessAccountId:
+            credentials.businessAccountId ?? prevMeta.businessAccountId,
+          phoneNumberId: credentials.phoneNumberId ?? prevMeta.phoneNumberId,
         } as Prisma.InputJsonValue,
       },
     });

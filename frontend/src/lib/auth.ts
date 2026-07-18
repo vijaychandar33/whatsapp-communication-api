@@ -6,7 +6,14 @@ export type AuthUser = {
   id: string;
   email: string;
   organizationId: string;
-  organization?: { id: string; name: string; slug: string; type?: string };
+  organization?: {
+    id: string;
+    name: string;
+    slug: string;
+    type?: string;
+    status?: string;
+    createdAt?: string;
+  };
   roles?: string[];
   workspaceRole?: string;
   firstName?: string | null;

@@ -5,7 +5,6 @@ import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { JoinPage } from './pages/JoinPage';
 import { DashboardPage } from './pages/DashboardPage';
-import { OrganizationsPage } from './pages/OrganizationsPage';
 import { UsersPage } from './pages/UsersPage';
 import { ApiKeysPage } from './pages/ApiKeysPage';
 import { AccountsPage } from './pages/AccountsPage';
@@ -47,7 +46,7 @@ export default function App() {
       <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>
           <Route index element={<DashboardPage />} />
-          <Route path="organizations" element={<OrganizationsPage />} />
+          <Route path="organizations" element={<Navigate to="/profile" replace />} />
           <Route path="users" element={<UsersPage />} />
           <Route path="api-keys" element={<ApiKeysPage />} />
           <Route path="accounts" element={<AccountsPage />} />

@@ -70,10 +70,12 @@ export class UpdateAccountDto {
 }
 
 export class ConnectAccountDto {
-  @ApiProperty()
+  /** Required on first connect; omit when editing to keep the existing token. */
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
   @MinLength(1)
-  accessToken!: string;
+  accessToken?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

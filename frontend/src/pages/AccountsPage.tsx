@@ -21,13 +21,19 @@ type Account = {
   id: string;
   name?: string;
   channelCode?: string;
-  phoneNumber?: string;
+  phoneNumber?: string | null;
   connectionStatus?: string;
-  externalAccountId?: string;
+  externalAccountId?: string | null;
+  webhookVerifyToken?: string | null;
+  metadata?: {
+    phoneNumberId?: string;
+    businessAccountId?: string;
+    [key: string]: unknown;
+  } | null;
   createdAt?: string;
 };
 
-const schema = z.object({
+const createSchema = z.object({
   organizationId: z.string().uuid(),
   name: z.string().min(2),
   channelCode: z.literal('WHATSAPP'),
@@ -39,14 +45,39 @@ const schema = z.object({
   verifyToken: z.string().optional(),
 });
 
-type FormValues = z.infer<typeof schema>;
+const editSchema = z.object({
+  name: z.string().min(2),
+  phoneNumber: z.string().optional(),
+  phoneNumberId: z.string().min(1, 'Phone number ID required'),
+  businessAccountId: z.string().optional(),
+  accessToken: z.string().optional(),
+  webhookSecret: z.string().optional(),
+  verifyToken: z.string().optional(),
+});
+
+type CreateValues = z.infer<typeof createSchema>;
+type EditValues = z.infer<typeof editSchema>;
+
+const emptyCreate = (orgId: string): CreateValues => ({
+  organizationId: orgId,
+  name: '',
+  channelCode: 'WHATSAPP',
+  phoneNumber: '',
+  phoneNumberId: '',
+  businessAccountId: '',
+  accessToken: '',
+  webhookSecret: '',
+  verifyToken: '',
+});
 
 export function AccountsPage() {
   const { user } = useAuth();
   const isSystem = user?.organization?.type === 'SYSTEM';
   const orgId = user?.organizationId || '';
   const [page, setPage] = useState(1);
-  const [open, setOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editing, setEditing] = useState<Account | null>(null);
+  const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const list = usePaginatedList<Account>({
@@ -55,12 +86,15 @@ export function AccountsPage() {
     page,
   });
 
-  const form = useForm<FormValues>({
-    resolver: zodResolver(schema),
+  const createForm = useForm<CreateValues>({
+    resolver: zodResolver(createSchema),
+    defaultValues: emptyCreate(orgId),
+  });
+
+  const editForm = useForm<EditValues>({
+    resolver: zodResolver(editSchema),
     defaultValues: {
-      organizationId: orgId,
       name: '',
-      channelCode: 'WHATSAPP',
       phoneNumber: '',
       phoneNumberId: '',
       businessAccountId: '',
@@ -71,11 +105,30 @@ export function AccountsPage() {
   });
 
   useEffect(() => {
-    if (orgId) form.setValue('organizationId', orgId);
-  }, [orgId, form]);
+    if (orgId) createForm.setValue('organizationId', orgId);
+  }, [orgId, createForm]);
+
+  useEffect(() => {
+    if (!editing) return;
+    const meta = editing.metadata || {};
+    editForm.reset({
+      name: editing.name || '',
+      phoneNumber: editing.phoneNumber || '',
+      phoneNumberId:
+        (typeof meta.phoneNumberId === 'string' && meta.phoneNumberId) ||
+        editing.externalAccountId ||
+        '',
+      businessAccountId:
+        (typeof meta.businessAccountId === 'string' && meta.businessAccountId) ||
+        '',
+      accessToken: '',
+      webhookSecret: '',
+      verifyToken: editing.webhookVerifyToken || '',
+    });
+  }, [editing, editForm]);
 
   const create = useMutation({
-    mutationFn: async (values: FormValues) => {
+    mutationFn: async (values: CreateValues) => {
       const { data: created } = await api.post<{ data: Account }>(
         '/admin/v1/accounts',
         {
@@ -97,26 +150,64 @@ export function AccountsPage() {
       return created.data;
     },
     onSuccess: async () => {
-      setOpen(false);
-      form.reset({
-        organizationId: orgId,
-        name: '',
-        channelCode: 'WHATSAPP',
-        phoneNumber: '',
-        phoneNumberId: '',
-        businessAccountId: '',
-        accessToken: '',
-        webhookSecret: '',
-        verifyToken: '',
-      });
+      setCreateOpen(false);
+      createForm.reset(emptyCreate(orgId));
       await queryClient.invalidateQueries({ queryKey: ['accounts'] });
     },
   });
 
+  const update = useMutation({
+    mutationFn: async (values: EditValues) => {
+      if (!editing) throw new Error('No account selected');
+
+      await api.put(`/admin/v1/accounts/${editing.id}`, {
+        name: values.name,
+        phoneNumber: values.phoneNumber || undefined,
+        externalAccountId: values.phoneNumberId,
+        metadata: {
+          ...(editing.metadata || {}),
+          phoneNumberId: values.phoneNumberId,
+          businessAccountId: values.businessAccountId || undefined,
+        },
+      });
+
+      const connectBody: Record<string, string> = {
+        phoneNumberId: values.phoneNumberId,
+      };
+      if (values.businessAccountId)
+        connectBody.businessAccountId = values.businessAccountId;
+      if (values.verifyToken) connectBody.verifyToken = values.verifyToken;
+      if (values.accessToken?.trim())
+        connectBody.accessToken = values.accessToken.trim();
+      if (values.webhookSecret?.trim())
+        connectBody.webhookSecret = values.webhookSecret.trim();
+
+      // Re-apply / reconnect credentials (token optional when already stored).
+      await api.post(`/admin/v1/accounts/${editing.id}/connect`, connectBody);
+    },
+    onSuccess: async () => {
+      setEditing(null);
+      await queryClient.invalidateQueries({ queryKey: ['accounts'] });
+    },
+  });
+
+  const openEdit = async (row: Account) => {
+    try {
+      const { data } = await api.get<{ data: Account }>(
+        `/admin/v1/accounts/${row.id}`,
+      );
+      setEditing(data.data);
+    } catch {
+      setEditing(row);
+    }
+  };
+
   const disconnect = useMutation({
     mutationFn: async (id: string) => {
+      setDisconnectingId(id);
       await api.post(`/admin/v1/accounts/${id}/disconnect`);
     },
+    onSettled: () => setDisconnectingId(null),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['accounts'] });
     },
@@ -129,7 +220,9 @@ export function AccountsPage() {
       <PageHeader
         title="WhatsApp"
         description="Connect WhatsApp Cloud API numbers with Meta credentials."
-        actions={<Button onClick={() => setOpen(true)}>Connect number</Button>}
+        actions={
+          <Button onClick={() => setCreateOpen(true)}>Connect number</Button>
+        }
       />
 
       <Card>
@@ -159,7 +252,9 @@ export function AccountsPage() {
             <TBody>
               {list.data.items.map((row) => (
                 <TR key={row.id}>
-                  <TD className="font-medium text-slate-900">{row.name || '—'}</TD>
+                  <TD className="font-medium text-slate-900">
+                    {row.name || '—'}
+                  </TD>
                   <TD className="font-mono text-xs">
                     {row.phoneNumber || row.externalAccountId || '—'}
                   </TD>
@@ -174,15 +269,25 @@ export function AccountsPage() {
                   </TD>
                   <TD>{formatDate(row.createdAt)}</TD>
                   <TD>
-                    {row.connectionStatus === 'CONNECTED' ? (
+                    <div className="flex flex-wrap justify-end gap-2">
                       <Button
                         variant="secondary"
-                        loading={disconnect.isPending}
-                        onClick={() => disconnect.mutate(row.id)}
+                        size="sm"
+                        onClick={() => void openEdit(row)}
                       >
-                        Disconnect
+                        Edit
                       </Button>
-                    ) : null}
+                      {row.connectionStatus === 'CONNECTED' ? (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          loading={disconnectingId === row.id}
+                          onClick={() => disconnect.mutate(row.id)}
+                        >
+                          Disconnect
+                        </Button>
+                      ) : null}
+                    </div>
                   </TD>
                 </TR>
               ))}
@@ -199,17 +304,19 @@ export function AccountsPage() {
       </Card>
 
       <Modal
-        open={open}
+        open={createOpen}
         title="Connect WhatsApp account"
-        onClose={() => setOpen(false)}
+        onClose={() => setCreateOpen(false)}
         footer={
           <>
-            <Button variant="secondary" onClick={() => setOpen(false)}>
+            <Button variant="secondary" onClick={() => setCreateOpen(false)}>
               Cancel
             </Button>
             <Button
               loading={create.isPending}
-              onClick={form.handleSubmit((values) => create.mutateAsync(values))}
+              onClick={createForm.handleSubmit((values) =>
+                create.mutateAsync(values),
+              )}
             >
               Connect
             </Button>
@@ -220,51 +327,138 @@ export function AccountsPage() {
           {isSystem ? (
             <Input
               label="Organization ID"
-              error={form.formState.errors.organizationId?.message}
-              {...form.register('organizationId')}
+              error={createForm.formState.errors.organizationId?.message}
+              {...createForm.register('organizationId')}
             />
           ) : (
-            <input type="hidden" {...form.register('organizationId')} />
+            <input type="hidden" {...createForm.register('organizationId')} />
           )}
           <Input
             label="Display name"
-            error={form.formState.errors.name?.message}
-            {...form.register('name')}
+            error={createForm.formState.errors.name?.message}
+            {...createForm.register('name')}
           />
           <Input
             label="Display phone (optional)"
             placeholder="+91…"
-            {...form.register('phoneNumber')}
+            {...createForm.register('phoneNumber')}
           />
           <Input
             label="Phone number ID"
-            error={form.formState.errors.phoneNumberId?.message}
-            {...form.register('phoneNumberId')}
+            error={createForm.formState.errors.phoneNumberId?.message}
+            {...createForm.register('phoneNumberId')}
           />
           <Input
             label="WABA / Business account ID"
-            {...form.register('businessAccountId')}
+            {...createForm.register('businessAccountId')}
           />
           <Input
             label="Access token"
             type="password"
-            error={form.formState.errors.accessToken?.message}
-            {...form.register('accessToken')}
+            error={createForm.formState.errors.accessToken?.message}
+            {...createForm.register('accessToken')}
           />
           <Input
             label="Webhook secret (app secret)"
             type="password"
-            {...form.register('webhookSecret')}
+            {...createForm.register('webhookSecret')}
           />
-          <Input label="Webhook verify token" {...form.register('verifyToken')} />
-          <p className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          <Input
+            label="Webhook verify token"
+            {...createForm.register('verifyToken')}
+          />
+          <p className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
             After connecting, set Meta webhook URL to{' '}
             <span className="font-mono">
               {webhookBase}/api/v1/webhooks/whatsapp/&lt;accountId&gt;
             </span>
           </p>
           {create.isError ? (
-            <p className="text-sm text-red-600">{getErrorMessage(create.error)}</p>
+            <p className="text-sm text-red-600">
+              {getErrorMessage(create.error)}
+            </p>
+          ) : null}
+        </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(editing)}
+        title="Edit WhatsApp account"
+        onClose={() => setEditing(null)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEditing(null)}>
+              Cancel
+            </Button>
+            <Button
+              loading={update.isPending}
+              onClick={editForm.handleSubmit((values) =>
+                update.mutateAsync(values),
+              )}
+            >
+              Save changes
+            </Button>
+          </>
+        }
+      >
+        <form className="space-y-4">
+          <Input
+            label="Display name"
+            error={editForm.formState.errors.name?.message}
+            {...editForm.register('name')}
+          />
+          <Input
+            label="Display phone (optional)"
+            placeholder="+91…"
+            {...editForm.register('phoneNumber')}
+          />
+          <Input
+            label="Phone number ID"
+            error={editForm.formState.errors.phoneNumberId?.message}
+            {...editForm.register('phoneNumberId')}
+          />
+          <Input
+            label="WABA / Business account ID"
+            {...editForm.register('businessAccountId')}
+          />
+          <Input
+            label="Access token"
+            type="password"
+            placeholder={
+              editing?.connectionStatus === 'CONNECTED'
+                ? 'Leave blank to keep current token'
+                : 'Required to reconnect'
+            }
+            error={editForm.formState.errors.accessToken?.message}
+            {...editForm.register('accessToken')}
+          />
+          <Input
+            label="Webhook secret (app secret)"
+            type="password"
+            placeholder="Leave blank to keep current secret"
+            {...editForm.register('webhookSecret')}
+          />
+          <Input
+            label="Webhook verify token"
+            {...editForm.register('verifyToken')}
+          />
+          {editing?.connectionStatus !== 'CONNECTED' ? (
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              This account is disconnected. Provide an access token to reconnect.
+            </p>
+          ) : null}
+          {editing ? (
+            <p className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
+              Webhook URL:{' '}
+              <span className="font-mono break-all">
+                {webhookBase}/api/v1/webhooks/whatsapp/{editing.id}
+              </span>
+            </p>
+          ) : null}
+          {update.isError ? (
+            <p className="text-sm text-red-600">
+              {getErrorMessage(update.error)}
+            </p>
           ) : null}
         </form>
       </Modal>

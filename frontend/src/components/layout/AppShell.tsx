@@ -1,6 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
-  Building2,
   Users,
   KeyRound,
   Radio,
@@ -36,10 +35,9 @@ import { cn } from '../../lib/utils';
 
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/organizations', label: 'Organizations', icon: Building2 },
   { to: '/users', label: 'Users', icon: Users },
-  { to: '/api-keys', label: 'API Keys', icon: KeyRound },
   { to: '/accounts', label: 'WhatsApp', icon: Radio },
+  { to: '/api-keys', label: 'API Keys', icon: KeyRound },
   { to: '/contacts', label: 'Contacts', icon: Contact },
   { to: '/conversations', label: 'Inbox', icon: MessagesSquare },
   { to: '/messages', label: 'Messages', icon: Mail },
