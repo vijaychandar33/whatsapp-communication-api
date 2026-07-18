@@ -542,6 +542,7 @@ model Conversation {
   lastMessageText        String?            @map("last_message_text")
   externalThreadId       String?            @map("external_thread_id")
   lastMessageAt          DateTime?          @map("last_message_at")
+  lastCustomerMessageAt  DateTime?          @map("last_customer_message_at")
   aiAutoreplyDisabled    Boolean            @default(false) @map("ai_autoreply_disabled")
   aiReplyCount           Int                @default(0) @map("ai_reply_count")
   aiHandoffSummary       String?            @map("ai_handoff_summary")

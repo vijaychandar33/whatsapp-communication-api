@@ -9,7 +9,7 @@ import {
 import { MessageQueuedEvent, MessageSentEvent } from '../../domain/events';
 import { ChannelAccountContext } from '../../domain/interfaces/channel-provider.interface';
 import { MessageType as DomainMessageType } from '../../domain/enums';
-import { NotFoundError, ProviderUnavailable } from '../../domain/errors';
+import { NotFoundError, ProviderUnavailable, ValidationError } from '../../domain/errors';
 import { PhoneNumber } from '../../domain/value-objects/phone-number.vo';
 import { PrismaService } from '../../infrastructure/persistence/prisma/prisma.service';
 import { ChannelProviderRegistry } from '../../infrastructure/providers/channel-provider.registry';
@@ -103,6 +103,21 @@ export class CommunicationSdk {
     const messageId = this.identifiers.generate();
     const messageType = input.messageType ?? MessageType.TEXT;
     const toE164 = contact.phoneNumber || PhoneNumber.create(input.to).toString();
+    const isTemplate =
+      messageType === MessageType.TEMPLATE || Boolean(input.templateName);
+
+    if (!isTemplate) {
+      const lastCustomer = conversation.lastCustomerMessageAt;
+      const windowMs = 24 * 60 * 60 * 1000;
+      const open =
+        lastCustomer != null &&
+        this.clock.now().getTime() - lastCustomer.getTime() < windowMs;
+      if (!open) {
+        throw new ValidationError(
+          'Customer service window closed. Send an approved WhatsApp template until the customer replies.',
+        );
+      }
+    }
 
     await this.prisma.$transaction(async (tx) => {
       await tx.message.create({

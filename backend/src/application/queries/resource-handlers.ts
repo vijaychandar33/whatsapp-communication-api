@@ -377,8 +377,18 @@ export class GetConversationHandler {
       },
     });
     if (!conversation) throw new NotFoundError('Conversation', id);
+    const lastCustomer = conversation.lastCustomerMessageAt;
+    const windowMs = 24 * 60 * 60 * 1000;
+    const sessionExpiresAt = lastCustomer
+      ? new Date(lastCustomer.getTime() + windowMs)
+      : null;
+    const sessionOpen = Boolean(
+      sessionExpiresAt && sessionExpiresAt.getTime() > Date.now(),
+    );
     return {
       ...conversation,
+      sessionOpen,
+      sessionExpiresAt,
       contact: conversation.contact
         ? {
             ...conversation.contact,

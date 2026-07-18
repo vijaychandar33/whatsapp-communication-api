@@ -617,6 +617,7 @@ export class ProcessWebhookHandler {
         where: { id: conversation!.id },
         data: {
           lastMessageAt: this.clock.now(),
+          lastCustomerMessageAt: this.clock.now(),
           lastMessageText: preview,
           unreadCount: { increment: 1 },
           ...(conversation!.status === 'CLOSED' ||
