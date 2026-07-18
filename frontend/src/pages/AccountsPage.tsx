@@ -25,6 +25,8 @@ type Account = {
   connectionStatus?: string;
   externalAccountId?: string | null;
   webhookVerifyToken?: string | null;
+  accessToken?: string | null;
+  webhookSecret?: string | null;
   metadata?: {
     phoneNumberId?: string;
     businessAccountId?: string;
@@ -121,8 +123,8 @@ export function AccountsPage() {
       businessAccountId:
         (typeof meta.businessAccountId === 'string' && meta.businessAccountId) ||
         '',
-      accessToken: '',
-      webhookSecret: '',
+      accessToken: editing.accessToken || '',
+      webhookSecret: editing.webhookSecret || '',
       verifyToken: editing.webhookVerifyToken || '',
     });
   }, [editing, editForm]);
@@ -426,7 +428,7 @@ export function AccountsPage() {
             type="password"
             placeholder={
               editing?.connectionStatus === 'CONNECTED'
-                ? 'Leave blank to keep current token'
+                ? undefined
                 : 'Required to reconnect'
             }
             error={editForm.formState.errors.accessToken?.message}
@@ -435,7 +437,6 @@ export function AccountsPage() {
           <Input
             label="Webhook secret (app secret)"
             type="password"
-            placeholder="Leave blank to keep current secret"
             {...editForm.register('webhookSecret')}
           />
           <Input

@@ -3,6 +3,7 @@ import { ChannelCode, ConversationStatus, Prisma } from '@prisma/client';
 import { NotFoundError } from '../../domain/errors';
 import { PrismaService } from '../../infrastructure/persistence/prisma/prisma.service';
 import { UuidIdentifierService } from '../../infrastructure/identifier/uuid-identifier.service';
+import { AesSecretService } from '../../infrastructure/secrets/secret.service';
 import {
   buildPaginatedMeta,
   PaginationDto,
@@ -51,7 +52,10 @@ export class ListAccountsHandler {
 
 @Injectable()
 export class GetAccountHandler {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly secrets: AesSecretService,
+  ) {}
 
   async execute(id: string) {
     const account = await this.prisma.communicationAccount.findFirst({
@@ -67,12 +71,56 @@ export class GetAccountHandler {
         connectionStatus: true,
         metadata: true,
         webhookVerifyToken: true,
+        credentialsEnc: true,
         createdAt: true,
         updatedAt: true,
       },
     });
     if (!account) throw new NotFoundError('CommunicationAccount', id);
-    return account;
+
+    let accessToken: string | undefined;
+    let webhookSecret: string | undefined;
+    let phoneNumberId: string | undefined;
+    let businessAccountId: string | undefined;
+
+    if (account.credentialsEnc) {
+      try {
+        const creds = JSON.parse(
+          this.secrets.decrypt(account.credentialsEnc),
+        ) as {
+          accessToken?: string;
+          webhookSecret?: string;
+          phoneNumberId?: string;
+          businessAccountId?: string;
+        };
+        accessToken = creds.accessToken;
+        webhookSecret = creds.webhookSecret;
+        phoneNumberId = creds.phoneNumberId;
+        businessAccountId = creds.businessAccountId;
+      } catch {
+        // leave secrets unset if decrypt fails
+      }
+    }
+
+    const { credentialsEnc: _, ...rest } = account;
+    const meta = (rest.metadata as Record<string, unknown>) ?? {};
+
+    return {
+      ...rest,
+      accessToken: accessToken ?? null,
+      webhookSecret: webhookSecret ?? null,
+      metadata: {
+        ...meta,
+        phoneNumberId:
+          phoneNumberId ??
+          (typeof meta.phoneNumberId === 'string' ? meta.phoneNumberId : undefined),
+        businessAccountId:
+          businessAccountId ??
+          (typeof meta.businessAccountId === 'string'
+            ? meta.businessAccountId
+            : undefined),
+      },
+    };
   }
 }
 
