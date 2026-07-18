@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Copy } from 'lucide-react';
 import { api, getErrorMessage } from '../lib/api';
 import { listErrorMessage, usePaginatedList } from '../hooks/usePaginatedList';
@@ -45,7 +45,6 @@ const createSchema = z.object({
   businessAccountId: z.string().optional(),
   accessToken: z.string().min(10, 'Access token required'),
   webhookSecret: z.string().optional(),
-  verifyToken: z.string().optional(),
 });
 
 const editSchema = z.object({
@@ -55,7 +54,6 @@ const editSchema = z.object({
   businessAccountId: z.string().optional(),
   accessToken: z.string().optional(),
   webhookSecret: z.string().optional(),
-  verifyToken: z.string().optional(),
 });
 
 type CreateValues = z.infer<typeof createSchema>;
@@ -70,7 +68,6 @@ const emptyCreate = (orgId: string): CreateValues => ({
   businessAccountId: '',
   accessToken: '',
   webhookSecret: '',
-  verifyToken: '',
 });
 
 function WebhookUrlBox({ url }: { url: string }) {
@@ -131,12 +128,60 @@ export function AccountsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<Account | null>(null);
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
+  const [orgVerifyToken, setOrgVerifyToken] = useState('');
   const queryClient = useQueryClient();
 
   const list = usePaginatedList<Account>({
     queryKey: ['accounts', orgId],
     path: '/admin/v1/accounts',
     page,
+  });
+
+  const settings = useQuery({
+    queryKey: ['settings', orgId, 'whatsapp-webhook'],
+    enabled: Boolean(orgId),
+    queryFn: async () => {
+      const { data } = await api.get<{
+        data: { settings?: Record<string, unknown> };
+      }>('/admin/v1/settings', { params: { organizationId: orgId } });
+      return data.data;
+    },
+  });
+
+  useEffect(() => {
+    const nested = settings.data?.settings || {};
+    setOrgVerifyToken(
+      typeof nested.whatsappWebhookVerifyToken === 'string'
+        ? nested.whatsappWebhookVerifyToken
+        : '',
+    );
+  }, [settings.data]);
+
+  const saveOrgWebhook = useMutation({
+    mutationFn: async () => {
+      const token = orgVerifyToken.trim();
+      const nested = settings.data?.settings || {};
+      await api.put('/admin/v1/settings', {
+        organizationId: orgId,
+        settings: {
+          ...nested,
+          whatsappWebhookVerifyToken: token || undefined,
+        },
+      });
+      // Keep connected accounts aligned with the org token for Meta verify.
+      const accounts = list.data?.items || [];
+      await Promise.all(
+        accounts.map((a) =>
+          api.put(`/admin/v1/accounts/${a.id}`, {
+            webhookVerifyToken: token || '',
+          }),
+        ),
+      );
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['settings', orgId] });
+      await queryClient.invalidateQueries({ queryKey: ['accounts'] });
+    },
   });
 
   const createForm = useForm<CreateValues>({
@@ -153,7 +198,6 @@ export function AccountsPage() {
       businessAccountId: '',
       accessToken: '',
       webhookSecret: '',
-      verifyToken: '',
     },
   });
 
@@ -176,7 +220,6 @@ export function AccountsPage() {
         '',
       accessToken: editing.accessToken || '',
       webhookSecret: editing.webhookSecret || '',
-      verifyToken: editing.webhookVerifyToken || '',
     });
   }, [editing, editForm]);
 
@@ -200,7 +243,7 @@ export function AccountsPage() {
         accessToken: values.accessToken,
         phoneNumberId: values.phoneNumberId,
         businessAccountId: values.businessAccountId || undefined,
-        verifyToken: values.verifyToken || undefined,
+        verifyToken: orgVerifyToken.trim() || undefined,
         webhookSecret: values.webhookSecret || undefined,
       });
 
@@ -221,7 +264,7 @@ export function AccountsPage() {
         name: values.name,
         phoneNumber: values.phoneNumber || undefined,
         externalAccountId: values.phoneNumberId,
-        webhookVerifyToken: values.verifyToken || undefined,
+        webhookVerifyToken: orgVerifyToken.trim() || undefined,
         metadata: {
           ...(editing.metadata || {}),
           phoneNumberId: values.phoneNumberId,
@@ -234,7 +277,8 @@ export function AccountsPage() {
       };
       if (values.businessAccountId)
         connectBody.businessAccountId = values.businessAccountId;
-      if (values.verifyToken) connectBody.verifyToken = values.verifyToken;
+      if (orgVerifyToken.trim())
+        connectBody.verifyToken = orgVerifyToken.trim();
       if (values.accessToken?.trim())
         connectBody.accessToken = values.accessToken.trim();
       if (values.webhookSecret?.trim())
@@ -285,8 +329,34 @@ export function AccountsPage() {
           <CardHeader>
             <CardTitle>Organization webhook</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <WebhookUrlBox url={webhookUrl} />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="min-w-0 flex-1">
+                <Input
+                  label="Webhook verify token"
+                  value={orgVerifyToken}
+                  onChange={(e) => setOrgVerifyToken(e.target.value)}
+                  placeholder="Same token you enter in Meta"
+                />
+              </div>
+              <Button
+                loading={saveOrgWebhook.isPending}
+                onClick={() => saveOrgWebhook.mutate()}
+              >
+                Save token
+              </Button>
+            </div>
+            {saveOrgWebhook.isError ? (
+              <p className="text-sm text-red-600">
+                {getErrorMessage(saveOrgWebhook.error)}
+              </p>
+            ) : null}
+            {saveOrgWebhook.isSuccess ? (
+              <p className="text-sm text-zinc-600 dark:text-zinc-300">
+                Verify token saved for this organization.
+              </p>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}
@@ -429,13 +499,8 @@ export function AccountsPage() {
             type="password"
             {...createForm.register('webhookSecret')}
           />
-          <Input
-            label="Webhook verify token"
-            {...createForm.register('verifyToken')}
-          />
           <p className="text-xs text-zinc-500">
-            Use the organization webhook URL above in Meta — not a per-number
-            URL. Set the same verify token on this account and in Meta.
+            Uses the organization webhook URL and verify token above in Meta.
           </p>
           {create.isError ? (
             <p className="text-sm text-red-600">
@@ -500,10 +565,6 @@ export function AccountsPage() {
             label="Webhook secret (app secret)"
             type="password"
             {...editForm.register('webhookSecret')}
-          />
-          <Input
-            label="Webhook verify token"
-            {...editForm.register('verifyToken')}
           />
           {editing?.connectionStatus !== 'CONNECTED' ? (
             <p className="text-xs text-amber-700 dark:text-amber-400">

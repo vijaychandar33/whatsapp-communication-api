@@ -166,11 +166,22 @@ export class ConnectAccountHandler {
       throw new ValidationError('accessToken is required');
     }
 
+    let verifyToken = cmd.verifyToken ?? existing.verifyToken;
+    if (!verifyToken) {
+      const settings = await this.prisma.organizationSettings.findUnique({
+        where: { organizationId: account.organizationId },
+      });
+      const nested = (settings?.settings as Record<string, unknown>) ?? {};
+      if (typeof nested.whatsappWebhookVerifyToken === 'string') {
+        verifyToken = nested.whatsappWebhookVerifyToken;
+      }
+    }
+
     const credentials: StoredCredentials = {
       accessToken,
       phoneNumberId: cmd.phoneNumberId ?? existing.phoneNumberId,
       businessAccountId: cmd.businessAccountId ?? existing.businessAccountId,
-      verifyToken: cmd.verifyToken ?? existing.verifyToken,
+      verifyToken,
       webhookSecret: cmd.webhookSecret ?? existing.webhookSecret,
     };
 
@@ -181,9 +192,7 @@ export class ConnectAccountHandler {
       data: {
         credentialsEnc: this.secrets.encrypt(JSON.stringify(credentials)),
         webhookVerifyToken:
-          cmd.verifyToken ??
-          credentials.verifyToken ??
-          account.webhookVerifyToken,
+          verifyToken ?? account.webhookVerifyToken,
         externalAccountId:
           credentials.phoneNumberId ??
           credentials.businessAccountId ??

@@ -181,11 +181,17 @@ export class ProcessWebhookHandler {
 
     const org = await this.prisma.organization.findFirst({
       where: { id: organizationId, deletedAt: null },
-      select: { id: true },
+      include: { settings: true },
     });
     if (!org) throw new NotFoundError('Organization', organizationId);
 
-    // Org callback uses whichever connected account's verify token matches Meta.
+    const nested = (org.settings?.settings as Record<string, unknown>) ?? {};
+    const orgToken =
+      typeof nested.whatsappWebhookVerifyToken === 'string'
+        ? nested.whatsappWebhookVerifyToken
+        : null;
+    if (orgToken && verifyToken === orgToken) return true;
+
     const accountMatch = await this.prisma.communicationAccount.findFirst({
       where: {
         organizationId,
@@ -309,23 +315,29 @@ export class ProcessWebhookHandler {
     };
   }
 
-  /** Persist org-level Meta app secret for signature checks on the permanent callback. */
+  /** Persist org-level Meta verify token / app secret for the permanent callback. */
   async syncOrganizationWebhookConfig(
     organizationId: string,
     opts: { verifyToken?: string; appSecret?: string },
   ): Promise<void> {
-    if (!opts.appSecret) return;
+    if (!opts.verifyToken && !opts.appSecret) return;
 
     const existing = await this.prisma.organizationSettings.findUnique({
       where: { organizationId },
     });
     const nested = (existing?.settings as Record<string, unknown>) ?? {};
-    if (nested.whatsappWebhookAppSecret) return;
+    const next = { ...nested };
+    let changed = false;
 
-    const next = {
-      ...nested,
-      whatsappWebhookAppSecret: opts.appSecret,
-    };
+    if (opts.verifyToken && !nested.whatsappWebhookVerifyToken) {
+      next.whatsappWebhookVerifyToken = opts.verifyToken;
+      changed = true;
+    }
+    if (opts.appSecret && !nested.whatsappWebhookAppSecret) {
+      next.whatsappWebhookAppSecret = opts.appSecret;
+      changed = true;
+    }
+    if (!changed && existing) return;
 
     await this.prisma.organizationSettings.upsert({
       where: { organizationId },
