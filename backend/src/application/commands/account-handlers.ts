@@ -8,6 +8,7 @@ import { NotFoundError, ValidationError } from '../../domain/errors';
 import { PrismaService } from '../../infrastructure/persistence/prisma/prisma.service';
 import { UuidIdentifierService } from '../../infrastructure/identifier/uuid-identifier.service';
 import { AesSecretService } from '../../infrastructure/secrets/secret.service';
+import { ProcessWebhookHandler } from './webhook-handlers';
 
 export interface CreateAccountCommand {
   organizationId: string;
@@ -132,6 +133,7 @@ export class ConnectAccountHandler {
   constructor(
     private readonly prisma: PrismaService,
     private readonly secrets: AesSecretService,
+    private readonly webhooks: ProcessWebhookHandler,
   ) {}
 
   async execute(cmd: ConnectAccountCommand) {
@@ -174,7 +176,7 @@ export class ConnectAccountHandler {
 
     const prevMeta = (account.metadata as Record<string, unknown>) ?? {};
 
-    return this.prisma.communicationAccount.update({
+    const updated = await this.prisma.communicationAccount.update({
       where: { id: cmd.id },
       data: {
         credentialsEnc: this.secrets.encrypt(JSON.stringify(credentials)),
@@ -195,6 +197,13 @@ export class ConnectAccountHandler {
         } as Prisma.InputJsonValue,
       },
     });
+
+    await this.webhooks.syncOrganizationWebhookConfig(account.organizationId, {
+      verifyToken: credentials.verifyToken,
+      appSecret: credentials.webhookSecret,
+    });
+
+    return updated;
   }
 }
 

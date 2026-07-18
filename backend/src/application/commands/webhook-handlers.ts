@@ -30,6 +30,74 @@ export interface ProcessWebhookCommand {
   rawBody?: Buffer | string;
 }
 
+export interface ProcessOrganizationWebhookCommand {
+  organizationId: string;
+  payload: Record<string, unknown>;
+  signatureHeader?: string;
+  rawBody?: Buffer | string;
+}
+
+type AccountRef = {
+  id: string;
+  organizationId: string;
+  channelCode: ChannelCode;
+  credentialsEnc: string | null;
+  externalAccountId: string | null;
+  metadata: unknown;
+  webhookVerifyToken: string | null;
+  connectionStatus: string;
+};
+
+function extractWhatsAppRouteIds(payload: Record<string, unknown>): {
+  phoneNumberIds: string[];
+  wabaIds: string[];
+} {
+  const phoneNumberIds = new Set<string>();
+  const wabaIds = new Set<string>();
+  const entries =
+    (payload.entry as Array<Record<string, unknown>> | undefined) ?? [];
+
+  for (const entry of entries) {
+    if (entry.id != null) wabaIds.add(String(entry.id));
+    const changes =
+      (entry.changes as Array<Record<string, unknown>> | undefined) ?? [];
+    for (const change of changes) {
+      const value = change.value as Record<string, unknown> | undefined;
+      const meta = value?.metadata as
+        | { phone_number_id?: string | number }
+        | undefined;
+      if (meta?.phone_number_id != null) {
+        phoneNumberIds.add(String(meta.phone_number_id));
+      }
+    }
+  }
+
+  return {
+    phoneNumberIds: [...phoneNumberIds],
+    wabaIds: [...wabaIds],
+  };
+}
+
+function accountMatchesRoute(
+  account: AccountRef,
+  phoneNumberIds: string[],
+  wabaIds: string[],
+): boolean {
+  const meta = (account.metadata as Record<string, unknown>) ?? {};
+  const phoneId =
+    typeof meta.phoneNumberId === 'string'
+      ? meta.phoneNumberId
+      : account.externalAccountId;
+  const wabaId =
+    typeof meta.businessAccountId === 'string'
+      ? meta.businessAccountId
+      : undefined;
+
+  if (phoneId && phoneNumberIds.includes(phoneId)) return true;
+  if (wabaId && wabaIds.includes(wabaId)) return true;
+  return false;
+}
+
 @Injectable()
 export class ProcessWebhookHandler {
   private readonly logger = new Logger(ProcessWebhookHandler.name);
@@ -70,23 +138,13 @@ export class ProcessWebhookHandler {
       throw new NotFoundError('CommunicationAccount', cmd.accountId);
     }
 
-    let signatureValid: boolean | null = null;
-    if (cmd.signatureHeader && account.credentialsEnc) {
-      const credentials = JSON.parse(
-        this.secrets.decrypt(account.credentialsEnc),
-      ) as { webhookSecret?: string };
-      if (credentials.webhookSecret) {
-        const provider = this.registry.get(account.channelCode);
-        const raw =
-          cmd.rawBody ??
-          Buffer.from(JSON.stringify(cmd.payload), 'utf8');
-        signatureValid = provider.verifyWebhookSignature(
-          raw,
-          cmd.signatureHeader,
-          credentials.webhookSecret,
-        );
-      }
-    }
+    const signatureValid = this.verifySignature(
+      account.channelCode,
+      account.credentialsEnc,
+      cmd.signatureHeader,
+      cmd.rawBody,
+      cmd.payload,
+    );
 
     const eventId = this.identifiers.generate();
     await this.prisma.webhookEvent.create({
@@ -112,6 +170,214 @@ export class ProcessWebhookHandler {
       },
       signatureValid,
     };
+  }
+
+  async verifyOrganizationToken(
+    organizationId: string,
+    mode: string,
+    verifyToken: string,
+  ): Promise<boolean> {
+    if (mode !== 'subscribe' || !verifyToken) return false;
+
+    const org = await this.prisma.organization.findFirst({
+      where: { id: organizationId, deletedAt: null },
+      include: { settings: true },
+    });
+    if (!org) throw new NotFoundError('Organization', organizationId);
+
+    const nested = (org.settings?.settings as Record<string, unknown>) ?? {};
+    const orgToken =
+      typeof nested.whatsappWebhookVerifyToken === 'string'
+        ? nested.whatsappWebhookVerifyToken
+        : null;
+    if (orgToken && verifyToken === orgToken) return true;
+
+    const accountMatch = await this.prisma.communicationAccount.findFirst({
+      where: {
+        organizationId,
+        deletedAt: null,
+        channelCode: ChannelCode.WHATSAPP,
+        webhookVerifyToken: verifyToken,
+      },
+      select: { id: true },
+    });
+    return Boolean(accountMatch);
+  }
+
+  async storeOrganizationEvent(
+    cmd: ProcessOrganizationWebhookCommand,
+  ): Promise<{
+    eventId: string;
+    account: {
+      id: string;
+      organizationId: string;
+      channelCode: ChannelCode;
+      credentialsEnc: string | null;
+    } | null;
+    signatureValid: boolean | null;
+  }> {
+    const org = await this.prisma.organization.findFirst({
+      where: { id: cmd.organizationId, deletedAt: null },
+      include: { settings: true },
+    });
+    if (!org) throw new NotFoundError('Organization', cmd.organizationId);
+
+    const accounts = (await this.prisma.communicationAccount.findMany({
+      where: {
+        organizationId: cmd.organizationId,
+        deletedAt: null,
+        channelCode: ChannelCode.WHATSAPP,
+      },
+    })) as AccountRef[];
+
+    const { phoneNumberIds, wabaIds } = extractWhatsAppRouteIds(cmd.payload);
+    const matched =
+      accounts.find((a) =>
+        accountMatchesRoute(a, phoneNumberIds, wabaIds),
+      ) ?? null;
+
+    let signatureValid: boolean | null = null;
+    if (cmd.signatureHeader) {
+      if (matched) {
+        signatureValid = this.verifySignature(
+          matched.channelCode,
+          matched.credentialsEnc,
+          cmd.signatureHeader,
+          cmd.rawBody,
+          cmd.payload,
+        );
+      } else {
+        // Try any connected account secret, then org-level app secret
+        for (const account of accounts) {
+          const result = this.verifySignature(
+            account.channelCode,
+            account.credentialsEnc,
+            cmd.signatureHeader,
+            cmd.rawBody,
+            cmd.payload,
+          );
+          if (result === true) {
+            signatureValid = true;
+            break;
+          }
+          if (result === false) signatureValid = false;
+        }
+        if (signatureValid !== true) {
+          const nested =
+            (org.settings?.settings as Record<string, unknown>) ?? {};
+          const orgSecret =
+            typeof nested.whatsappWebhookAppSecret === 'string'
+              ? nested.whatsappWebhookAppSecret
+              : null;
+          if (orgSecret) {
+            const provider = this.registry.get(ChannelCode.WHATSAPP);
+            const raw =
+              cmd.rawBody ?? Buffer.from(JSON.stringify(cmd.payload), 'utf8');
+            signatureValid = provider.verifyWebhookSignature(
+              raw,
+              cmd.signatureHeader,
+              orgSecret,
+            );
+          }
+        }
+      }
+    }
+
+    const eventId = this.identifiers.generate();
+    await this.prisma.webhookEvent.create({
+      data: {
+        id: eventId,
+        organizationId: cmd.organizationId,
+        communicationAccountId: matched?.id,
+        channelCode: ChannelCode.WHATSAPP,
+        eventType: 'whatsapp.webhook',
+        payload: cmd.payload as Prisma.InputJsonValue,
+        errorMessage:
+          signatureValid === false
+            ? 'Invalid webhook signature'
+            : !matched
+              ? 'No matching WhatsApp account for phone_number_id'
+              : undefined,
+      },
+    });
+
+    return {
+      eventId,
+      account: matched
+        ? {
+            id: matched.id,
+            organizationId: matched.organizationId,
+            channelCode: matched.channelCode,
+            credentialsEnc: matched.credentialsEnc,
+          }
+        : null,
+      signatureValid,
+    };
+  }
+
+  /** Persist org-level Meta verify token (and optional app secret) for the permanent callback. */
+  async syncOrganizationWebhookConfig(
+    organizationId: string,
+    opts: { verifyToken?: string; appSecret?: string },
+  ): Promise<void> {
+    if (!opts.verifyToken && !opts.appSecret) return;
+
+    const existing = await this.prisma.organizationSettings.findUnique({
+      where: { organizationId },
+    });
+    const nested = (existing?.settings as Record<string, unknown>) ?? {};
+    const next = { ...nested };
+    let changed = false;
+
+    if (
+      opts.verifyToken &&
+      !nested.whatsappWebhookVerifyToken
+    ) {
+      next.whatsappWebhookVerifyToken = opts.verifyToken;
+      changed = true;
+    }
+    if (opts.appSecret && !nested.whatsappWebhookAppSecret) {
+      next.whatsappWebhookAppSecret = opts.appSecret;
+      changed = true;
+    }
+    if (!changed && existing) return;
+
+    await this.prisma.organizationSettings.upsert({
+      where: { organizationId },
+      create: {
+        id: this.identifiers.generate(),
+        organizationId,
+        settings: next as Prisma.InputJsonValue,
+      },
+      update: {
+        settings: next as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  private verifySignature(
+    channelCode: ChannelCode,
+    credentialsEnc: string | null,
+    signatureHeader: string | undefined,
+    rawBody: Buffer | string | undefined,
+    payload: Record<string, unknown>,
+  ): boolean | null {
+    if (!signatureHeader || !credentialsEnc) return null;
+    try {
+      const credentials = JSON.parse(
+        this.secrets.decrypt(credentialsEnc),
+      ) as { webhookSecret?: string };
+      if (!credentials.webhookSecret) return null;
+      const provider = this.registry.get(channelCode);
+      const raw = rawBody ?? Buffer.from(JSON.stringify(payload), 'utf8');
+      return provider.verifyWebhookSignature(
+        raw,
+        signatureHeader,
+        credentials.webhookSecret,
+      );
+    } catch {
+      return null;
+    }
   }
 
   async processStoredEvent(
