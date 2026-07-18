@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -15,6 +16,7 @@ import { PaginationDto } from '../../dto/pagination.dto';
 import {
   ConnectAccountHandler,
   CreateAccountHandler,
+  DeleteAccountHandler,
   DisconnectAccountHandler,
   GetAccountStatusHandler,
   UpdateAccountHandler,
@@ -37,6 +39,7 @@ export class AccountsController {
   constructor(
     private readonly createAccount: CreateAccountHandler,
     private readonly updateAccount: UpdateAccountHandler,
+    private readonly deleteAccount: DeleteAccountHandler,
     private readonly connectAccount: ConnectAccountHandler,
     private readonly disconnectAccount: DisconnectAccountHandler,
     private readonly getStatus: GetAccountStatusHandler,
@@ -71,6 +74,12 @@ export class AccountsController {
       data: await this.updateAccount.execute({ id, ...dto }),
       message: 'Account updated',
     };
+  }
+
+  @Delete(':id')
+  async remove(@Param('id') id: string) {
+    await this.deleteAccount.execute(id);
+    return { data: { id }, message: 'Account deleted' };
   }
 
   @Post(':id/connect')

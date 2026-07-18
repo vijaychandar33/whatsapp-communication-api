@@ -67,6 +67,11 @@ export class UpdateAccountDto {
   @IsOptional()
   @IsObject()
   metadata?: Record<string, unknown>;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  webhookVerifyToken?: string;
 }
 
 export class ConnectAccountDto {

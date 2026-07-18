@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Check, Copy } from 'lucide-react';
 import { api, getErrorMessage } from '../lib/api';
 import { listErrorMessage, usePaginatedList } from '../hooks/usePaginatedList';
 import { useAuth } from '../hooks/useAuth';
@@ -72,12 +73,63 @@ const emptyCreate = (orgId: string): CreateValues => ({
   verifyToken: '',
 });
 
+function WebhookUrlBox({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // ignore
+    }
+  };
+
+  return (
+    <div className="rounded-md border border-zinc-200 bg-slate-50 p-3 dark:border-zinc-700 dark:bg-zinc-800/80">
+      <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500">
+        Webhook / callback URL
+      </div>
+      <div className="flex items-start gap-2">
+        <code className="min-w-0 flex-1 break-all font-mono text-xs leading-relaxed text-zinc-700 dark:text-zinc-300">
+          {url}
+        </code>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="shrink-0"
+          onClick={() => void copy()}
+        >
+          {copied ? (
+            <>
+              <Check className="mr-1 h-3.5 w-3.5" />
+              Copied
+            </>
+          ) : (
+            <>
+              <Copy className="mr-1 h-3.5 w-3.5" />
+              Copy
+            </>
+          )}
+        </Button>
+      </div>
+      <p className="mt-2 text-xs text-zinc-500">
+        Paste this URL in Meta → WhatsApp → Configuration → Webhook.
+      </p>
+    </div>
+  );
+}
+
 export function AccountsPage() {
   const { user } = useAuth();
   const isSystem = user?.organization?.type === 'SYSTEM';
   const orgId = user?.organizationId || '';
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [openingCreate, setOpeningCreate] = useState(false);
   const [editing, setEditing] = useState<Account | null>(null);
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -129,19 +181,67 @@ export function AccountsPage() {
     });
   }, [editing, editForm]);
 
-  const create = useMutation({
-    mutationFn: async (values: CreateValues) => {
-      const { data: created } = await api.post<{ data: Account }>(
+  const webhookBase = window.location.origin;
+
+  const openCreate = async () => {
+    if (!orgId && !isSystem) return;
+    setOpeningCreate(true);
+    try {
+      const organizationId =
+        createForm.getValues('organizationId') || orgId;
+      const { data } = await api.post<{ data: Account }>(
         '/admin/v1/accounts',
         {
-          organizationId: values.organizationId,
-          name: values.name,
-          channelCode: values.channelCode,
-          phoneNumber: values.phoneNumber || undefined,
+          organizationId,
+          name: 'New WhatsApp number',
+          channelCode: 'WHATSAPP',
         },
       );
+      setDraftId(data.data.id);
+      createForm.reset({
+        ...emptyCreate(organizationId),
+        name: '',
+      });
+      setCreateOpen(true);
+      await queryClient.invalidateQueries({ queryKey: ['accounts'] });
+    } catch {
+      // surface via toast-less alert on next open attempt — keep silent; button will retry
+    } finally {
+      setOpeningCreate(false);
+    }
+  };
 
-      await api.post(`/admin/v1/accounts/${created.data.id}/connect`, {
+  const closeCreate = async (discardDraft: boolean) => {
+    const id = draftId;
+    setCreateOpen(false);
+    setDraftId(null);
+    createForm.reset(emptyCreate(orgId));
+    if (discardDraft && id) {
+      try {
+        await api.delete(`/admin/v1/accounts/${id}`);
+        await queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const create = useMutation({
+    mutationFn: async (values: CreateValues) => {
+      if (!draftId) throw new Error('Account draft missing');
+
+      await api.put(`/admin/v1/accounts/${draftId}`, {
+        name: values.name,
+        phoneNumber: values.phoneNumber || undefined,
+        externalAccountId: values.phoneNumberId,
+        webhookVerifyToken: values.verifyToken || undefined,
+        metadata: {
+          phoneNumberId: values.phoneNumberId,
+          businessAccountId: values.businessAccountId || undefined,
+        },
+      });
+
+      await api.post(`/admin/v1/accounts/${draftId}/connect`, {
         accessToken: values.accessToken,
         phoneNumberId: values.phoneNumberId,
         businessAccountId: values.businessAccountId || undefined,
@@ -149,10 +249,11 @@ export function AccountsPage() {
         webhookSecret: values.webhookSecret || undefined,
       });
 
-      return created.data;
+      return draftId;
     },
     onSuccess: async () => {
       setCreateOpen(false);
+      setDraftId(null);
       createForm.reset(emptyCreate(orgId));
       await queryClient.invalidateQueries({ queryKey: ['accounts'] });
     },
@@ -166,6 +267,7 @@ export function AccountsPage() {
         name: values.name,
         phoneNumber: values.phoneNumber || undefined,
         externalAccountId: values.phoneNumberId,
+        webhookVerifyToken: values.verifyToken || undefined,
         metadata: {
           ...(editing.metadata || {}),
           phoneNumberId: values.phoneNumberId,
@@ -184,7 +286,6 @@ export function AccountsPage() {
       if (values.webhookSecret?.trim())
         connectBody.webhookSecret = values.webhookSecret.trim();
 
-      // Re-apply / reconnect credentials (token optional when already stored).
       await api.post(`/admin/v1/accounts/${editing.id}/connect`, connectBody);
     },
     onSuccess: async () => {
@@ -215,15 +316,15 @@ export function AccountsPage() {
     },
   });
 
-  const webhookBase = window.location.origin;
-
   return (
     <div>
       <PageHeader
         title="WhatsApp"
         description="Connect WhatsApp Cloud API numbers with Meta credentials."
         actions={
-          <Button onClick={() => setCreateOpen(true)}>Connect number</Button>
+          <Button loading={openingCreate} onClick={() => void openCreate()}>
+            Connect number
+          </Button>
         }
       />
 
@@ -308,10 +409,13 @@ export function AccountsPage() {
       <Modal
         open={createOpen}
         title="Connect WhatsApp account"
-        onClose={() => setCreateOpen(false)}
+        onClose={() => void closeCreate(true)}
         footer={
           <>
-            <Button variant="secondary" onClick={() => setCreateOpen(false)}>
+            <Button
+              variant="secondary"
+              onClick={() => void closeCreate(true)}
+            >
               Cancel
             </Button>
             <Button
@@ -326,6 +430,11 @@ export function AccountsPage() {
         }
       >
         <form className="space-y-4">
+          {draftId ? (
+            <WebhookUrlBox
+              url={`${webhookBase}/api/v1/webhooks/whatsapp/${draftId}`}
+            />
+          ) : null}
           {isSystem ? (
             <Input
               label="Organization ID"
@@ -367,14 +476,16 @@ export function AccountsPage() {
           />
           <Input
             label="Webhook verify token"
-            {...createForm.register('verifyToken')}
+            {...createForm.register('verifyToken', {
+              onBlur: (e) => {
+                const token = e.target.value?.trim();
+                if (!draftId || !token) return;
+                void api.put(`/admin/v1/accounts/${draftId}`, {
+                  webhookVerifyToken: token,
+                });
+              },
+            })}
           />
-          <p className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
-            After connecting, set Meta webhook URL to{' '}
-            <span className="font-mono">
-              {webhookBase}/api/v1/webhooks/whatsapp/&lt;accountId&gt;
-            </span>
-          </p>
           {create.isError ? (
             <p className="text-sm text-red-600">
               {getErrorMessage(create.error)}
@@ -404,6 +515,11 @@ export function AccountsPage() {
         }
       >
         <form className="space-y-4">
+          {editing ? (
+            <WebhookUrlBox
+              url={`${webhookBase}/api/v1/webhooks/whatsapp/${editing.id}`}
+            />
+          ) : null}
           <Input
             label="Display name"
             error={editForm.formState.errors.name?.message}
@@ -446,14 +562,6 @@ export function AccountsPage() {
           {editing?.connectionStatus !== 'CONNECTED' ? (
             <p className="text-xs text-amber-700 dark:text-amber-400">
               This account is disconnected. Provide an access token to reconnect.
-            </p>
-          ) : null}
-          {editing ? (
-            <p className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
-              Webhook URL:{' '}
-              <span className="font-mono break-all">
-                {webhookBase}/api/v1/webhooks/whatsapp/{editing.id}
-              </span>
             </p>
           ) : null}
           {update.isError ? (

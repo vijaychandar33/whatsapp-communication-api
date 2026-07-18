@@ -24,6 +24,7 @@ export interface UpdateAccountCommand {
   phoneNumber?: string;
   externalAccountId?: string;
   metadata?: Record<string, unknown>;
+  webhookVerifyToken?: string;
 }
 
 export interface ConnectAccountCommand {
@@ -95,10 +96,32 @@ export class UpdateAccountHandler {
         name: cmd.name,
         phoneNumber: cmd.phoneNumber,
         externalAccountId: cmd.externalAccountId,
+        webhookVerifyToken: cmd.webhookVerifyToken,
         metadata:
           cmd.metadata !== undefined
             ? (cmd.metadata as Prisma.InputJsonValue)
             : undefined,
+      },
+    });
+  }
+}
+
+@Injectable()
+export class DeleteAccountHandler {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async execute(id: string) {
+    const account = await this.prisma.communicationAccount.findFirst({
+      where: { id, deletedAt: null },
+    });
+    if (!account) throw new NotFoundError('CommunicationAccount', id);
+
+    return this.prisma.communicationAccount.update({
+      where: { id },
+      data: {
+        deletedAt: new Date(),
+        credentialsEnc: null,
+        connectionStatus: AccountConnectionStatus.DISCONNECTED,
       },
     });
   }

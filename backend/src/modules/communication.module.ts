@@ -14,6 +14,7 @@ import {
 import {
   CreateAccountHandler,
   UpdateAccountHandler,
+  DeleteAccountHandler,
   ConnectAccountHandler,
   DisconnectAccountHandler,
   GetAccountStatusHandler,
@@ -160,6 +161,7 @@ const queueImports = hasRedis
     CreateApiKeyHandler,
     CreateAccountHandler,
     UpdateAccountHandler,
+    DeleteAccountHandler,
     ConnectAccountHandler,
     DisconnectAccountHandler,
     GetAccountStatusHandler,
