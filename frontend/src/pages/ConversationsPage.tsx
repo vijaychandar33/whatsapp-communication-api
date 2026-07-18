@@ -259,7 +259,7 @@ export function ConversationsPage() {
   }, [detail.data?.messages?.length, selectedId]);
 
   const markRead = async (conversationId: string) => {
-    if (!orgId) return;
+    if (!orgId || !conversationId) return;
     queryClient.setQueriesData(
       { queryKey: ['conversations', orgId] },
       (old: unknown) => {
@@ -278,27 +278,47 @@ export function ConversationsPage() {
       },
     );
     try {
-      await api.post(`/admin/v1/conversations/${conversationId}/read`, null, {
-        params: { organizationId: orgId },
-      });
+      await api.post(
+        `/admin/v1/conversations/${conversationId}/read`,
+        {},
+        { params: { organizationId: orgId } },
+      );
     } catch {
-      // ignore
+      // GET detail also zeroes unread server-side
     }
   };
 
   const selectConversation = (row: Conversation) => {
     setSelectedId(row.id);
-    if ((row.unreadCount || 0) > 0) {
-      void markRead(row.id);
-    }
+    void markRead(row.id);
   };
 
   useEffect(() => {
     if (!selectedId || !orgId) return;
-    const unread = list.data?.items.find((c) => c.id === selectedId)?.unreadCount;
-    if ((unread || 0) > 0) void markRead(selectedId);
+    void markRead(selectedId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId]);
+  }, [selectedId, orgId]);
+
+  // After detail loads, list may still show stale unread — sync from server read side-effect
+  useEffect(() => {
+    if (!selectedId || !detail.data) return;
+    if ((detail.data.unreadCount || 0) === 0) {
+      queryClient.setQueriesData(
+        { queryKey: ['conversations', orgId] },
+        (old: unknown) => {
+          if (!old || typeof old !== 'object') return old;
+          const data = old as { items?: Conversation[] };
+          if (!Array.isArray(data.items)) return old;
+          return {
+            ...data,
+            items: data.items.map((c) =>
+              c.id === selectedId ? { ...c, unreadCount: 0 } : c,
+            ),
+          };
+        },
+      );
+    }
+  }, [selectedId, detail.data, orgId, queryClient]);
 
   const invalidateThread = async () => {
     await queryClient.invalidateQueries({

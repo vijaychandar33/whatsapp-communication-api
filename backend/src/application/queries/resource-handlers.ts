@@ -377,6 +377,15 @@ export class GetConversationHandler {
       },
     });
     if (!conversation) throw new NotFoundError('Conversation', id);
+
+    if (conversation.unreadCount > 0) {
+      await this.prisma.conversation.update({
+        where: { id },
+        data: { unreadCount: 0 },
+      });
+      conversation.unreadCount = 0;
+    }
+
     const lastCustomer = conversation.lastCustomerMessageAt;
     const windowMs = 24 * 60 * 60 * 1000;
     const sessionExpiresAt = lastCustomer

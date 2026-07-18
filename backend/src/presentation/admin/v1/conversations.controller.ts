@@ -84,8 +84,9 @@ export class ConversationsController {
     @Param('id') id: string,
     @Query('organizationId') organizationId: string,
   ) {
+    const orgId = organizationId;
     return {
-      data: await this.markRead.execute(organizationId, id),
+      data: await this.markRead.execute(orgId, id),
       message: 'Conversation marked read',
     };
   }
