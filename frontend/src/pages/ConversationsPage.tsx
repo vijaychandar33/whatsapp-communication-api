@@ -67,6 +67,21 @@ type Message = {
   createdAt?: string;
   messageType?: string;
   aiGenerated?: boolean;
+  content?: {
+    body?: string;
+    templateName?: string;
+    templateLanguage?: string;
+    [key: string]: unknown;
+  } | null;
+};
+
+type Template = {
+  id: string;
+  name?: string;
+  language?: string;
+  status?: string;
+  body?: string | null;
+  category?: string;
 };
 
 type ConversationDetail = Conversation & {
@@ -115,6 +130,23 @@ function formatBubbleTime(iso?: string) {
   } catch {
     return '';
   }
+}
+
+function messageBubbleText(m: Message): string {
+  if (m.body?.trim()) return m.body;
+  const content = m.content;
+  if (content && typeof content === 'object') {
+    if (typeof content.body === 'string' && content.body.trim()) {
+      return content.body;
+    }
+    if (typeof content.templateName === 'string' && content.templateName) {
+      return content.templateName;
+    }
+  }
+  if ((m.messageType || '').toUpperCase() === 'TEMPLATE') {
+    return 'Template message';
+  }
+  return m.messageType ? `[${m.messageType}]` : '—';
 }
 
 function MessageTicks({ status }: { status?: string }) {
@@ -191,13 +223,7 @@ export function ConversationsPage() {
     enabled: Boolean(orgId && selectedId && accountId),
     queryFn: async () => {
       const { data } = await api.get<{
-        data: {
-          id: string;
-          name?: string;
-          language?: string;
-          status?: string;
-          communicationAccountId?: string;
-        }[];
+        data: Template[];
       }>('/admin/v1/templates', {
         params: {
           organizationId: orgId,
@@ -396,6 +422,7 @@ export function ConversationsPage() {
             messageType: 'TEMPLATE',
             templateName: selectedTemplate.name,
             templateLanguage: selectedTemplate.language || 'en',
+            body: selectedTemplate.body || undefined,
             conversationId: conv.id,
             contactId: conv.contactId,
           },
@@ -844,10 +871,20 @@ export function ConversationsPage() {
                           )}
                         >
                           <div className="whitespace-pre-wrap break-words pr-1">
-                            {m.body ||
-                              (m.messageType
-                                ? `[${m.messageType}]`
-                                : '—')}
+                            {(m.messageType || '').toUpperCase() ===
+                            'TEMPLATE' ? (
+                              <div>
+                                <div className="mb-0.5 text-[11px] font-medium uppercase tracking-wide text-[#667781] dark:text-zinc-400">
+                                  Template
+                                  {typeof m.content?.templateName === 'string'
+                                    ? ` · ${m.content.templateName}`
+                                    : ''}
+                                </div>
+                                <div>{messageBubbleText(m)}</div>
+                              </div>
+                            ) : (
+                              messageBubbleText(m)
+                            )}
                           </div>
                           <div className="mt-0.5 flex items-center justify-end gap-1 pl-8">
                             {m.aiGenerated ? (

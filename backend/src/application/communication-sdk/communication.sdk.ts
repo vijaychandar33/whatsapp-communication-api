@@ -119,6 +119,29 @@ export class CommunicationSdk {
       }
     }
 
+    let body = input.body?.trim() || undefined;
+    if (isTemplate && !body && input.templateName) {
+      const tpl = await this.prisma.messageTemplate.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          name: input.templateName,
+          deletedAt: null,
+          OR: [
+            { communicationAccountId: account.id },
+            { communicationAccountId: null },
+          ],
+          ...(input.templateLanguage
+            ? { language: input.templateLanguage }
+            : {}),
+        },
+        orderBy: { updatedAt: 'desc' },
+      });
+      body = tpl?.body?.trim() || undefined;
+    }
+    if (isTemplate && !body && input.templateName) {
+      body = input.templateName;
+    }
+
     await this.prisma.$transaction(async (tx) => {
       await tx.message.create({
         data: {
@@ -131,12 +154,13 @@ export class CommunicationSdk {
           direction: MessageDirection.OUTBOUND,
           messageType,
           status: MessageStatus.QUEUED,
-          body: input.body,
+          body,
           content: (input.content ?? {
             to: toE164,
             mediaUrl: input.mediaUrl,
             mediaId: input.mediaId,
             caption: input.caption,
+            body,
             templateName: input.templateName,
             templateLanguage: input.templateLanguage,
             templateComponents: input.templateComponents,
@@ -154,7 +178,7 @@ export class CommunicationSdk {
       });
 
       const preview =
-        (input.body || '').trim().slice(0, 500) ||
+        (body || '').trim().slice(0, 500) ||
         (input.templateName
           ? `[template:${input.templateName}]`
           : messageType
