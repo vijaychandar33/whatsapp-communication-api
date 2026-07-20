@@ -423,6 +423,9 @@ export class AuthService {
       where: { id, organizationId },
     });
     if (!key) throw new NotFoundError('ApiKey', id);
+    if (key.status === 'REVOKED') {
+      throw new ValidationError('API key is already revoked');
+    }
     return this.prisma.apiKey.update({
       where: { id },
       data: {
@@ -436,6 +439,46 @@ export class AuthService {
         revokedAt: true,
       },
     });
+  }
+
+  async updateApiKeyName(organizationId: string, id: string, name: string) {
+    const trimmed = name.trim();
+    if (trimmed.length < 1) {
+      throw new ValidationError('API key name is required');
+    }
+    const key = await this.prisma.apiKey.findFirst({
+      where: { id, organizationId },
+    });
+    if (!key) throw new NotFoundError('ApiKey', id);
+    return this.prisma.apiKey.update({
+      where: { id },
+      data: { name: trimmed },
+      select: {
+        id: true,
+        name: true,
+        keyPrefix: true,
+        status: true,
+        scopes: true,
+        lastUsedAt: true,
+        expiresAt: true,
+        revokedAt: true,
+        createdAt: true,
+      },
+    });
+  }
+
+  async deleteApiKey(organizationId: string, id: string) {
+    const key = await this.prisma.apiKey.findFirst({
+      where: { id, organizationId },
+    });
+    if (!key) throw new NotFoundError('ApiKey', id);
+    if (key.status !== 'REVOKED') {
+      throw new ValidationError(
+        'Only revoked API keys can be deleted. Revoke the key first.',
+      );
+    }
+    await this.prisma.apiKey.delete({ where: { id } });
+    return { id, deleted: true };
   }
 
   hashTokenPublic(token: string): string {

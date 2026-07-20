@@ -57,6 +57,13 @@ import { Type } from 'class-transformer';
 import { InvitationRole } from '@prisma/client';
 import { IsArray } from 'class-validator';
 
+export class UpdateApiKeyNameDto {
+  @ApiProperty()
+  @IsString()
+  @MinLength(1)
+  name!: string;
+}
+
 export class CreateApiKeyDto {
   @ApiProperty()
   @IsUUID()
@@ -64,6 +71,7 @@ export class CreateApiKeyDto {
 
   @ApiProperty()
   @IsString()
+  @MinLength(1)
   name!: string;
 
   @ApiPropertyOptional({ type: [String], enum: API_KEY_SCOPES })
@@ -400,12 +408,32 @@ export class ApiKeysController {
     };
   }
 
-  @Delete(':id')
+  @Patch(':id')
   @RequireCapability('api_keys')
-  async revoke(
+  async updateName(
     @Param('id') id: string,
     @Query('organizationId') organizationId: string,
+    @Body() dto: UpdateApiKeyNameDto,
   ) {
+    return {
+      data: await this.auth.updateApiKeyName(organizationId, id, dto.name),
+      message: 'API key updated',
+    };
+  }
+
+  @Delete(':id')
+  @RequireCapability('api_keys')
+  async remove(
+    @Param('id') id: string,
+    @Query('organizationId') organizationId: string,
+    @Query('permanent') permanent?: string,
+  ) {
+    if (permanent === 'true') {
+      return {
+        data: await this.auth.deleteApiKey(organizationId, id),
+        message: 'API key deleted',
+      };
+    }
     return {
       data: await this.auth.revokeApiKey(organizationId, id),
       message: 'API key revoked',

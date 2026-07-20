@@ -43,6 +43,8 @@ export function ApiKeysPage() {
   const [open, setOpen] = useState(false);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [name, setName] = useState('');
+  const [editingKey, setEditingKey] = useState<ApiKeyRow | null>(null);
+  const [editName, setEditName] = useState('');
   const [scopes, setScopes] = useState<string[]>([
     'messages:send',
     'messages:read',
@@ -92,6 +94,38 @@ export function ApiKeysPage() {
       await queryClient.invalidateQueries({ queryKey: ['api-keys'] });
     },
   });
+
+  const updateName = useMutation({
+    mutationFn: async ({ id, name: nextName }: { id: string; name: string }) => {
+      const { data } = await api.patch<{ data: ApiKeyRow }>(
+        `/admin/v1/api-keys/${id}`,
+        { name: nextName },
+        { params: { organizationId: orgId } },
+      );
+      return data.data;
+    },
+    onSuccess: async () => {
+      setEditingKey(null);
+      setEditName('');
+      await queryClient.invalidateQueries({ queryKey: ['api-keys'] });
+    },
+  });
+
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/admin/v1/api-keys/${id}`, {
+        params: { organizationId: orgId, permanent: true },
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['api-keys'] });
+    },
+  });
+
+  const openEdit = (key: ApiKeyRow) => {
+    setEditingKey(key);
+    setEditName(key.name);
+  };
 
   if (!orgId) {
     return (
@@ -178,12 +212,24 @@ export function ApiKeysPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge tone={statusTone(k.status || '')}>{k.status}</Badge>
+                  <Button variant="secondary" onClick={() => openEdit(k)}>
+                    Edit
+                  </Button>
                   {k.status === 'ACTIVE' ? (
                     <Button
                       variant="secondary"
+                      loading={revoke.isPending}
                       onClick={() => revoke.mutate(k.id)}
                     >
                       Revoke
+                    </Button>
+                  ) : k.status === 'REVOKED' ? (
+                    <Button
+                      variant="secondary"
+                      loading={remove.isPending}
+                      onClick={() => remove.mutate(k.id)}
+                    >
+                      Delete
                     </Button>
                   ) : null}
                 </div>
@@ -280,6 +326,53 @@ export function ApiKeysPage() {
             ) : null}
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={Boolean(editingKey)}
+        title="Edit API key"
+        onClose={() => {
+          setEditingKey(null);
+          setEditName('');
+        }}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setEditingKey(null);
+                setEditName('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              loading={updateName.isPending}
+              disabled={
+                !editName.trim() || editName.trim() === editingKey?.name
+              }
+              onClick={() => {
+                if (!editingKey) return;
+                updateName.mutate({ id: editingKey.id, name: editName.trim() });
+              }}
+            >
+              Save
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <Input
+            label="Name"
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+          />
+          {updateName.isError ? (
+            <p className="text-sm text-red-600">
+              {getErrorMessage(updateName.error)}
+            </p>
+          ) : null}
+        </div>
       </Modal>
     </div>
   );
