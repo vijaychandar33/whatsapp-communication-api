@@ -30,9 +30,9 @@ import {
 } from '../application/commands/conversation-handlers';
 import { TagsService } from '../application/commands/tags.service';
 import {
-  CreateTemplateHandler,
   RefreshTemplateStatusHandler,
   SyncTemplatesHandler,
+  DeleteTemplateHandler,
 } from '../application/commands/template-handlers';
 import {
   UploadMediaHandler,
@@ -171,9 +171,9 @@ const queueImports = hasRedis
     PatchConversationHandler,
     MarkConversationReadHandler,
     TagsService,
-    CreateTemplateHandler,
     SyncTemplatesHandler,
     RefreshTemplateStatusHandler,
+    DeleteTemplateHandler,
     UploadMediaHandler,
     DeleteMediaHandler,
     UpdateSettingsHandler,

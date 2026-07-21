@@ -48,11 +48,16 @@ export class DashboardController {
   @Get()
   async get(
     @Query('organizationId') organizationId: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
     @Query('rangeDays') rangeDays?: string,
   ) {
-    const days = rangeDays ? Number(rangeDays) : 7;
     return {
-      data: await this.dashboard.execute(organizationId, days),
+      data: await this.dashboard.execute(organizationId, {
+        from: from ? new Date(from) : undefined,
+        to: to ? new Date(to) : undefined,
+        rangeDays: rangeDays ? Number(rangeDays) : undefined,
+      }),
       message: 'OK',
     };
   }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, getErrorMessage } from '../lib/api';
 import { useAuth } from '../hooks/useAuth';
@@ -6,7 +6,14 @@ import { PageHeader } from '../components/ui/PageHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Badge } from '../components/ui/Badge';
+import { DateRangeSelector } from '../components/ui/DateRangeSelector';
 import { formatDate } from '../lib/utils';
+import {
+  defaultDateRangeValue,
+  periodStatLabel,
+  resolveDateRange,
+  type DateRangeValue,
+} from '../lib/date-range';
 
 type DashboardData = {
   live?: {
@@ -34,6 +41,8 @@ type DashboardData = {
     createdAt: string;
   }>;
   rangeDays?: number;
+  from?: string;
+  to?: string;
 };
 
 type HealthData = {
@@ -46,22 +55,30 @@ function delta(current?: number, previous?: number): string {
   const c = current ?? 0;
   const p = previous ?? 0;
   const d = c - p;
-  if (d === 0) return '±0 vs yesterday';
-  return `${d > 0 ? '+' : ''}${d} vs yesterday`;
+  if (d === 0) return '±0 vs previous period';
+  return `${d > 0 ? '+' : ''}${d} vs previous period`;
 }
 
 export function DashboardPage() {
   const { user } = useAuth();
   const orgId = user?.organizationId;
-  const [rangeDays, setRangeDays] = useState(7);
+  const [dateRange, setDateRange] = useState<DateRangeValue>(defaultDateRangeValue);
+
+  const resolved = useMemo(() => resolveDateRange(dateRange), [dateRange]);
 
   const query = useQuery({
-    queryKey: ['dashboard', orgId, rangeDays],
+    queryKey: ['dashboard', orgId, resolved.from, resolved.to],
     enabled: Boolean(orgId),
     queryFn: async () => {
       const { data } = await api.get<{ data: DashboardData }>(
         '/admin/v1/dashboard',
-        { params: { organizationId: orgId, rangeDays } },
+        {
+          params: {
+            organizationId: orgId,
+            from: resolved.from,
+            to: resolved.to,
+          },
+        },
       );
       return data.data;
     },
@@ -78,7 +95,7 @@ export function DashboardPage() {
   });
 
   const live = query.data?.live;
-  const last7 = query.data?.last7Days;
+  const period = query.data?.last7Days;
   const series = query.data?.series || [];
   const maxSeries = Math.max(
     1,
@@ -87,12 +104,12 @@ export function DashboardPage() {
 
   const stats = [
     {
-      label: 'Messages today',
+      label: periodStatLabel('Messages', dateRange.preset),
       value: live?.messagesToday,
       hint: delta(live?.messagesToday, live?.messagesYesterday),
     },
     {
-      label: 'New contacts',
+      label: periodStatLabel('New contacts', dateRange.preset),
       value: live?.newContactsToday,
       hint: delta(live?.newContactsToday, live?.newContactsYesterday),
     },
@@ -102,15 +119,15 @@ export function DashboardPage() {
       hint: delta(live?.openConversations, live?.openConversationsYesterday),
     },
     {
-      label: 'Inbound today',
+      label: periodStatLabel('Inbound', dateRange.preset),
       value: live?.inboundToday,
     },
     {
-      label: 'Outbound today',
+      label: periodStatLabel('Outbound', dateRange.preset),
       value: live?.outboundToday,
     },
     {
-      label: 'Failed today',
+      label: periodStatLabel('Failed', dateRange.preset),
       value: live?.failedToday,
     },
   ];
@@ -121,6 +138,16 @@ export function DashboardPage() {
         title="Dashboard"
         description="Operational overview of your WhatsApp workspace."
       />
+
+      <DateRangeSelector
+        value={dateRange}
+        onChange={setDateRange}
+        className="mb-6"
+      />
+
+      <p className="mb-4 text-sm text-slate-500">
+        Showing data for <span className="font-medium text-slate-700">{resolved.label}</span>
+      </p>
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {stats.map((stat) => (
@@ -144,22 +171,6 @@ export function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle>Volume</CardTitle>
-            <div className="flex gap-1">
-              {[7, 30, 90].map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => setRangeDays(d)}
-                  className={`rounded px-2 py-1 text-xs font-medium ${
-                    rangeDays === d
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-slate-100 text-slate-600'
-                  }`}
-                >
-                  {d}d
-                </button>
-              ))}
-            </div>
           </CardHeader>
           <CardContent>
             {query.isError ? (
@@ -168,7 +179,7 @@ export function DashboardPage() {
                 description={getErrorMessage(query.error)}
               />
             ) : series.length === 0 ? (
-              <EmptyState title="No series data yet" />
+              <EmptyState title="No series data for this period" />
             ) : (
               <div className="flex h-40 items-end gap-0.5">
                 {series.map((s) => {
@@ -195,7 +206,7 @@ export function DashboardPage() {
                 })}
               </div>
             )}
-            <div className="mt-3 flex gap-4 text-xs text-slate-500">
+            <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500">
               <span>
                 <span className="mr-1 inline-block h-2 w-2 rounded-sm bg-slate-400" />
                 Inbound
@@ -205,8 +216,8 @@ export function DashboardPage() {
                 Outbound
               </span>
               <span>
-                7d sent {last7?.messagesSent ?? 0} · recv{' '}
-                {last7?.messagesReceived ?? 0}
+                Sent {period?.messagesSent ?? 0} · received{' '}
+                {period?.messagesReceived ?? 0}
               </span>
             </div>
           </CardContent>
@@ -254,8 +265,8 @@ export function DashboardPage() {
         <CardContent className="p-0">
           {(query.data?.activity || []).length === 0 ? (
             <EmptyState
-              title="No recent activity"
-              description="Messages and new contacts will show up here."
+              title="No activity in this period"
+              description="Messages and new contacts in the selected range will show here."
             />
           ) : (
             <ul className="divide-y divide-slate-100">

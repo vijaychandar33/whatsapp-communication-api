@@ -171,8 +171,12 @@ export class SyncTemplatesHandler {
 
     const synced = await provider.syncTemplates(ctx);
 
+    const approved = synced.filter(
+      (t) => mapStatus(t.status) === TemplateStatus.APPROVED,
+    );
+
     const results = [];
-    for (const t of synced) {
+    for (const t of approved) {
       const category = mapCategory(t.category);
       const status = mapStatus(t.status);
       const row = await this.prisma.messageTemplate.upsert({
@@ -211,13 +215,13 @@ export class SyncTemplatesHandler {
     }
 
     // Soft-delete legacy rows (pre-account scoping) that match this sync.
-    if (synced.length > 0) {
+    if (approved.length > 0) {
       await this.prisma.messageTemplate.updateMany({
         where: {
           organizationId,
           communicationAccountId: null,
           deletedAt: null,
-          OR: synced.map((t) => ({
+          OR: approved.map((t) => ({
             name: t.name,
             language: t.language,
           })),
@@ -227,6 +231,31 @@ export class SyncTemplatesHandler {
     }
 
     return { synced: results.length, templates: results };
+  }
+}
+
+@Injectable()
+export class DeleteTemplateHandler {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async execute(organizationId: string, templateId: string) {
+    const template = await this.prisma.messageTemplate.findFirst({
+      where: { id: templateId, organizationId, deletedAt: null },
+    });
+    if (!template) {
+      throw new NotFoundError('MessageTemplate', templateId);
+    }
+
+    return this.prisma.messageTemplate.update({
+      where: { id: templateId },
+      data: { deletedAt: new Date() },
+      select: {
+        id: true,
+        name: true,
+        language: true,
+        deletedAt: true,
+      },
+    });
   }
 }
 

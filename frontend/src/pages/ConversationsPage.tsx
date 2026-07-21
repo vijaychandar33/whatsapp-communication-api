@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Archive,
@@ -167,6 +168,7 @@ function MessageTicks({ status }: { status?: string }) {
 }
 
 export function ConversationsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const orgId = user?.organizationId || '';
   const [page, setPage] = useState(1);
@@ -187,6 +189,14 @@ export function ConversationsPage() {
     const t = setTimeout(() => setDebouncedQ(search.trim()), 250);
     return () => clearTimeout(t);
   }, [search]);
+
+  const conversationIdFromUrl = searchParams.get('conversationId');
+
+  useEffect(() => {
+    if (conversationIdFromUrl && conversationIdFromUrl !== selectedId) {
+      setSelectedId(conversationIdFromUrl);
+    }
+  }, [conversationIdFromUrl, selectedId]);
 
   const list = usePaginatedList<Conversation>({
     queryKey: ['conversations', orgId, status, unreadOnly, debouncedQ],
@@ -316,6 +326,7 @@ export function ConversationsPage() {
 
   const selectConversation = (row: Conversation) => {
     setSelectedId(row.id);
+    setSearchParams({ conversationId: row.id }, { replace: true });
     void markRead(row.id);
   };
 

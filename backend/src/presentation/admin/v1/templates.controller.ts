@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -12,13 +13,12 @@ import { JwtAuthGuard } from '../../guards/jwt-auth.guard';
 import { TenantScopeGuard } from '../../guards/tenant-scope.guard';
 import { ListTemplatesQueryDto } from '../../dto/pagination.dto';
 import {
-  CreateTemplateHandler,
   RefreshTemplateStatusHandler,
   SyncTemplatesHandler,
+  DeleteTemplateHandler,
 } from '../../../application/commands/template-handlers';
 import { ListTemplatesHandler } from '../../../application/queries/resource-handlers';
 import {
-  CreateTemplateDto,
   RefreshTemplateDto,
   SyncTemplatesDto,
 } from './dto/resources.dto';
@@ -30,9 +30,9 @@ import {
 export class TemplatesController {
   constructor(
     private readonly listTemplates: ListTemplatesHandler,
-    private readonly createTemplate: CreateTemplateHandler,
     private readonly syncTemplates: SyncTemplatesHandler,
     private readonly refreshTemplate: RefreshTemplateStatusHandler,
+    private readonly deleteTemplate: DeleteTemplateHandler,
   ) {}
 
   @Get()
@@ -45,16 +45,6 @@ export class TemplatesController {
     );
   }
 
-  @Post()
-  async create(@Body() dto: CreateTemplateDto) {
-    return {
-      data: await this.createTemplate.execute(dto),
-      message: dto.draftOnly
-        ? 'Template draft saved'
-        : 'Template submitted to Meta',
-    };
-  }
-
   @Post('sync')
   async sync(@Body() dto: SyncTemplatesDto) {
     return {
@@ -63,6 +53,17 @@ export class TemplatesController {
         dto.communicationAccountId,
       ),
       message: 'Templates synced',
+    };
+  }
+
+  @Delete(':id')
+  async remove(
+    @Param('id') id: string,
+    @Query('organizationId') organizationId: string,
+  ) {
+    return {
+      data: await this.deleteTemplate.execute(organizationId, id),
+      message: 'Template removed from system',
     };
   }
 

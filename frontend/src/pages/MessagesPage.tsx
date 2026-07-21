@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -20,6 +21,7 @@ import { cn, fieldControlClass, fieldLabelClass, formatDate, truncate } from '..
 
 type Message = {
   id: string;
+  conversationId?: string;
   status?: string;
   channelCode?: string;
   messageType?: string;
@@ -68,6 +70,7 @@ function contentPreview(row: Message): string {
 }
 
 export function MessagesPage() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const orgId = user?.organizationId || '';
   const [page, setPage] = useState(1);
@@ -217,7 +220,15 @@ export function MessagesPage() {
             </THead>
             <TBody>
               {items.map((row) => (
-                <TR key={row.id}>
+                <TR
+                  key={row.id}
+                  className={cn(row.conversationId && 'cursor-pointer')}
+                  onClick={() => {
+                    if (row.conversationId) {
+                      navigate(`/conversations?conversationId=${row.conversationId}`);
+                    }
+                  }}
+                >
                   <TD>
                     {row.status ? (
                       <Badge tone={statusTone(row.status)}>{row.status}</Badge>

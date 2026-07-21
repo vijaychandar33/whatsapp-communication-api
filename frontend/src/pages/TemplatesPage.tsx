@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, getErrorMessage } from '../lib/api';
 import { listErrorMessage, usePaginatedList } from '../hooks/usePaginatedList';
@@ -15,6 +15,19 @@ import { AccountBadge } from '../components/ui/AccountBadge';
 import { Badge, statusTone } from '../components/ui/Badge';
 import { Toast, type ToastState } from '../components/ui/Toast';
 import { cn, fieldControlClass, fieldLabelClass, formatDate } from '../lib/utils';
+import { openMetaMessageTemplates } from '../lib/meta-templates';
+
+type TemplateComponent = {
+  type?: string;
+  format?: string;
+  text?: string;
+  buttons?: Array<{
+    type?: string;
+    text?: string;
+    url?: string;
+    phone_number?: string;
+  }>;
+};
 
 type Template = {
   id: string;
@@ -24,21 +37,219 @@ type Template = {
   status?: string;
   channelCode?: string;
   body?: string | null;
+  components?: TemplateComponent[] | null;
   providerTemplateId?: string | null;
   createdAt?: string;
+  updatedAt?: string;
   communicationAccountId?: string | null;
   communicationAccount?: {
     id: string;
     name?: string | null;
     phoneNumber?: string | null;
+    connectionStatus?: string;
   } | null;
 };
+
+function parseTemplateComponents(components?: TemplateComponent[] | null) {
+  const list = Array.isArray(components) ? components : [];
+  const header = list.find((c) => c.type === 'HEADER');
+  const footer = list.find((c) => c.type === 'FOOTER');
+  const buttons =
+    list.find((c) => c.type === 'BUTTONS')?.buttons?.filter(Boolean) ?? [];
+  return { header, footer, buttons };
+}
+
+function extractBodyVariables(body?: string | null): string[] {
+  if (!body) return [];
+  const matches = [...body.matchAll(/\{\{(\d+)\}\}/g)].map((m) => m[1]);
+  return [...new Set(matches)].sort((a, b) => Number(a) - Number(b));
+}
+
+function DetailField({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <dt className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+        {label}
+      </dt>
+      <dd className="mt-1 text-sm text-zinc-900 dark:text-zinc-100">{children}</dd>
+    </div>
+  );
+}
+
+function TemplateDetailModal({
+  template,
+  onClose,
+  onRefresh,
+  onDelete,
+  refreshing,
+  deleting,
+}: {
+  template: Template;
+  onClose: () => void;
+  onRefresh: () => void;
+  onDelete: () => void;
+  refreshing: boolean;
+  deleting: boolean;
+}) {
+  const { header, footer, buttons } = parseTemplateComponents(template.components);
+  const variables = extractBodyVariables(template.body);
+
+  return (
+    <Modal
+      open
+      title={template.name || 'Template'}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+          <Button
+            variant="secondary"
+            loading={refreshing}
+            onClick={onRefresh}
+          >
+            Refresh from Meta
+          </Button>
+          <Button
+            variant="secondary"
+            className="text-red-600 hover:text-red-700"
+            loading={deleting}
+            onClick={onDelete}
+          >
+            Delete
+          </Button>
+        </>
+      }
+    >
+      <div className="max-h-[70vh] space-y-5 overflow-y-auto pr-1">
+        <div className="flex flex-wrap items-center gap-2">
+          {template.status ? (
+            <Badge tone={statusTone(template.status)}>{template.status}</Badge>
+          ) : null}
+          {template.category ? (
+            <Badge tone="neutral">{template.category}</Badge>
+          ) : null}
+          {template.channelCode ? (
+            <Badge tone="neutral">{template.channelCode}</Badge>
+          ) : null}
+        </div>
+
+        <dl className="grid gap-4 sm:grid-cols-2">
+          <DetailField label="Language">{template.language || '—'}</DetailField>
+          <DetailField label="WhatsApp account">
+            <AccountBadge account={template.communicationAccount} />
+          </DetailField>
+          <DetailField label="Meta template ID" className="sm:col-span-2">
+            <span className="break-all font-mono text-xs">
+              {template.providerTemplateId || '—'}
+            </span>
+          </DetailField>
+          <DetailField label="Created">
+            {formatDate(template.createdAt)}
+          </DetailField>
+          <DetailField label="Last updated">
+            {formatDate(template.updatedAt)}
+          </DetailField>
+          <DetailField label="Internal ID" className="sm:col-span-2">
+            <span className="break-all font-mono text-xs">{template.id}</span>
+          </DetailField>
+        </dl>
+
+        {variables.length > 0 ? (
+          <section className="space-y-2">
+            <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              Variables
+            </h4>
+            <div className="flex flex-wrap gap-2">
+              {variables.map((v) => (
+                <code
+                  key={v}
+                  className="rounded bg-zinc-100 px-2 py-1 text-xs dark:bg-zinc-800"
+                >
+                  {`{{${v}}}`}
+                </code>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {header ? (
+          <section className="space-y-2">
+            <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              Header
+            </h4>
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              {header.format || 'TEXT'}
+              {header.text ? ` · ${header.text}` : ''}
+            </p>
+          </section>
+        ) : null}
+
+        <section className="space-y-2">
+          <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+            Body
+          </h4>
+          <pre className="whitespace-pre-wrap rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200">
+            {template.body || '—'}
+          </pre>
+        </section>
+
+        {footer?.text ? (
+          <section className="space-y-2">
+            <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              Footer
+            </h4>
+            <p className="text-sm text-zinc-700 dark:text-zinc-300">{footer.text}</p>
+          </section>
+        ) : null}
+
+        {buttons.length > 0 ? (
+          <section className="space-y-2">
+            <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              Buttons
+            </h4>
+            <ul className="space-y-2">
+              {buttons.map((button, index) => (
+                <li
+                  key={`${button.type}-${button.text}-${index}`}
+                  className="rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800"
+                >
+                  <div className="font-medium text-zinc-900 dark:text-zinc-100">
+                    {button.text || '—'}
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-500">
+                    {button.type || 'BUTTON'}
+                    {button.url ? ` · ${button.url}` : ''}
+                    {button.phone_number ? ` · ${button.phone_number}` : ''}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
 
 type Account = {
   id: string;
   name?: string;
   connectionStatus?: string;
   phoneNumber?: string;
+  metadata?: {
+    businessAccountId?: string;
+    [key: string]: unknown;
+  } | null;
 };
 
 export function TemplatesPage() {
@@ -52,12 +263,8 @@ export function TemplatesPage() {
   const [createAccountId, setCreateAccountId] = useState('');
   const [filterAccountId, setFilterAccountId] = useState('');
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState({
-    name: '',
-    language: 'en_US',
-    category: 'UTILITY',
-    body: '',
-  });
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
   const queryClient = useQueryClient();
 
@@ -72,7 +279,7 @@ export function TemplatesPage() {
 
   const accounts = useQuery({
     queryKey: ['accounts', 'templates', orgId],
-    enabled: Boolean(orgId) && (syncOpen || createOpen || true),
+    enabled: Boolean(orgId),
     queryFn: async () => {
       const { data } = await api.get<{ data: Account[] }>('/admin/v1/accounts', {
         params: { organizationId: orgId, limit: 100 },
@@ -104,12 +311,12 @@ export function TemplatesPage() {
         tone: synced > 0 ? 'success' : 'info',
         title:
           synced > 0
-            ? `Synced ${synced} template${synced === 1 ? '' : 's'}`
-            : 'No templates on Meta',
+            ? `Synced ${synced} approved template${synced === 1 ? '' : 's'}`
+            : 'No approved templates on Meta',
         description:
           synced > 0
-            ? `Pulled from ${accountLabel}. Statuses updated from Meta.`
-            : `${accountLabel} has no message templates in Meta yet.`,
+            ? `Pulled approved templates from ${accountLabel}. Previously removed templates are restored.`
+            : `${accountLabel} has no approved message templates in Meta yet.`,
       });
     },
     onError: (err) => {
@@ -118,27 +325,6 @@ export function TemplatesPage() {
         title: 'Sync failed',
         description: getErrorMessage(err),
       });
-    },
-  });
-
-  const create = useMutation({
-    mutationFn: async () => {
-      const { data } = await api.post('/admin/v1/templates', {
-        organizationId: orgId,
-        channelCode: 'WHATSAPP',
-        name: draft.name,
-        language: draft.language,
-        category: draft.category,
-        body: draft.body,
-        communicationAccountId: createAccountId,
-      });
-      return data;
-    },
-    onSuccess: async () => {
-      setCreateOpen(false);
-      setCreateAccountId('');
-      setDraft({ name: '', language: 'en_US', category: 'UTILITY', body: '' });
-      await queryClient.invalidateQueries({ queryKey: ['templates'] });
     },
   });
 
@@ -155,10 +341,73 @@ export function TemplatesPage() {
       return data;
     },
     onSettled: () => setRefreshingId(null),
-    onSuccess: async () => {
+    onSuccess: async (data) => {
+      const updated = (data as { data?: Template } | undefined)?.data;
+      if (updated?.id) {
+        setSelectedTemplate((current) =>
+          current?.id === updated.id ? { ...current, ...updated } : current,
+        );
+      }
       await queryClient.invalidateQueries({ queryKey: ['templates'] });
     },
   });
+
+  const remove = useMutation({
+    mutationFn: async (row: Template) => {
+      setDeletingId(row.id);
+      await api.delete(`/admin/v1/templates/${row.id}`, {
+        params: { organizationId: orgId },
+      });
+    },
+    onSettled: () => setDeletingId(null),
+    onSuccess: async (_data, row) => {
+      if (selectedTemplate?.id === row.id) {
+        setSelectedTemplate(null);
+      }
+      await queryClient.invalidateQueries({ queryKey: ['templates'] });
+      setToast({
+        tone: 'success',
+        title: 'Template removed',
+        description:
+          'Removed from this system only. Sync from Meta to restore it.',
+      });
+    },
+    onError: (err) => {
+      setToast({
+        tone: 'danger',
+        title: 'Delete failed',
+        description: getErrorMessage(err),
+      });
+    },
+  });
+
+  const handleDelete = (row: Template) => {
+    const label = row.name || 'this template';
+    if (
+      !window.confirm(
+        `Remove "${label}" from this system? It will stay in Meta and can be restored via Sync from Meta.`,
+      )
+    ) {
+      return;
+    }
+    remove.mutate(row);
+  };
+
+  const handleCreateInMeta = () => {
+    const connected = (accounts.data || []).filter(
+      (a) => a.connectionStatus === 'CONNECTED',
+    );
+    if (connected.length === 1) {
+      const wabaId = connected[0].metadata?.businessAccountId;
+      openMetaMessageTemplates(wabaId);
+      return;
+    }
+    if (connected.length > 1) {
+      setCreateOpen(true);
+      return;
+    }
+    openMetaMessageTemplates();
+  };
 
   const items = (list.data?.items || []).filter((t) => {
     if (!search) return true;
@@ -182,10 +431,10 @@ export function TemplatesPage() {
       />
       <PageHeader
         title="Templates"
-        description="Create templates on Meta and track approval status."
+        description="Sync approved templates from Meta and manage them here."
         actions={
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => setCreateOpen(true)}>
+            <Button variant="secondary" onClick={handleCreateInMeta}>
               Create template
             </Button>
             <Button onClick={() => setSyncOpen(true)}>Sync from Meta</Button>
@@ -227,7 +476,7 @@ export function TemplatesPage() {
         ) : items.length === 0 ? (
           <EmptyState
             title="No templates found"
-            description="Create a template (submits to Meta) or sync existing ones."
+            description="Create templates in Meta or sync approved ones from Meta."
           />
         ) : (
           <Table>
@@ -240,12 +489,16 @@ export function TemplatesPage() {
                 <TH>Category</TH>
                 <TH>Status</TH>
                 <TH>Created</TH>
-                <TH className="w-16" />
+                <TH className="w-28" />
               </TR>
             </THead>
             <TBody>
               {items.map((row) => (
-                <TR key={row.id}>
+                <TR
+                  key={row.id}
+                  className="cursor-pointer"
+                  onClick={() => setSelectedTemplate(row)}
+                >
                   <TD className="font-medium text-zinc-900 dark:text-zinc-100">
                     {row.name || '—'}
                   </TD>
@@ -265,17 +518,29 @@ export function TemplatesPage() {
                     )}
                   </TD>
                   <TD>{formatDate(row.createdAt)}</TD>
-                  <TD>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 px-0"
-                      title="Refresh status from Meta"
-                      disabled={refreshingId === row.id}
-                      onClick={() => refresh.mutate(row)}
-                    >
-                      {refreshingId === row.id ? '…' : '↻'}
-                    </Button>
+                  <TD onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 px-0"
+                        title="Refresh status from Meta"
+                        disabled={refreshingId === row.id}
+                        onClick={() => refresh.mutate(row)}
+                      >
+                        {refreshingId === row.id ? '…' : '↻'}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 px-2 text-red-600 hover:text-red-700"
+                        title="Remove from system (keeps template in Meta)"
+                        disabled={deletingId === row.id}
+                        onClick={() => handleDelete(row)}
+                      >
+                        {deletingId === row.id ? '…' : 'Delete'}
+                      </Button>
+                    </div>
                   </TD>
                 </TR>
               ))}
@@ -297,30 +562,56 @@ export function TemplatesPage() {
         />
       </Card>
 
+      {selectedTemplate ? (
+        <TemplateDetailModal
+          template={selectedTemplate}
+          onClose={() => setSelectedTemplate(null)}
+          onRefresh={() => refresh.mutate(selectedTemplate)}
+          onDelete={() => handleDelete(selectedTemplate)}
+          refreshing={refreshingId === selectedTemplate.id}
+          deleting={deletingId === selectedTemplate.id}
+        />
+      ) : null}
+
       <Modal
         open={createOpen}
-        title="Create template"
-        onClose={() => setCreateOpen(false)}
+        title="Create template in Meta"
+        onClose={() => {
+          setCreateOpen(false);
+          setCreateAccountId('');
+        }}
         footer={
           <>
-            <Button variant="secondary" onClick={() => setCreateOpen(false)}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setCreateOpen(false);
+                setCreateAccountId('');
+              }}
+            >
               Cancel
             </Button>
             <Button
-              loading={create.isPending}
-              disabled={
-                !draft.name.trim() ||
-                !draft.body.trim() ||
-                !createAccountId
-              }
-              onClick={() => create.mutate()}
+              disabled={!createAccountId}
+              onClick={() => {
+                const account = (accounts.data || []).find(
+                  (a) => a.id === createAccountId,
+                );
+                openMetaMessageTemplates(account?.metadata?.businessAccountId);
+                setCreateOpen(false);
+                setCreateAccountId('');
+              }}
             >
-              Submit to Meta
+              Open Meta
             </Button>
           </>
         }
       >
         <div className="space-y-3">
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            Templates are created and managed in Meta. Choose which WhatsApp
+            Business account to open.
+          </p>
           <label className="block space-y-1.5">
             <span className={fieldLabelClass}>WhatsApp account</span>
             <select
@@ -329,58 +620,15 @@ export function TemplatesPage() {
               onChange={(e) => setCreateAccountId(e.target.value)}
             >
               <option value="">Select account…</option>
-              {(accounts.data || []).map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name || a.phoneNumber || a.id.slice(0, 8)} ({a.connectionStatus})
-                </option>
-              ))}
+              {(accounts.data || [])
+                .filter((a) => a.connectionStatus === 'CONNECTED')
+                .map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name || a.phoneNumber || a.id.slice(0, 8)}
+                  </option>
+                ))}
             </select>
           </label>
-          <Input
-            label="Name"
-            placeholder="hello_pelican741"
-            value={draft.name}
-            onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-          />
-          <p className="text-xs text-zinc-500">
-            Lowercase letters, numbers, underscores. Submitted to Meta for review.
-          </p>
-          <Input
-            label="Language"
-            placeholder="en_US"
-            value={draft.language}
-            onChange={(e) =>
-              setDraft((d) => ({ ...d, language: e.target.value }))
-            }
-          />
-          <label className="block space-y-1.5">
-            <span className={fieldLabelClass}>Category</span>
-            <select
-              className={cn(fieldControlClass, 'h-10 px-3')}
-              value={draft.category}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, category: e.target.value }))
-              }
-            >
-              <option value="UTILITY">UTILITY</option>
-              <option value="MARKETING">MARKETING</option>
-              <option value="AUTHENTICATION">AUTHENTICATION</option>
-            </select>
-          </label>
-          <label className="block space-y-1.5">
-            <span className={fieldLabelClass}>Body</span>
-            <textarea
-              className={cn(fieldControlClass, 'min-h-24 px-3 py-2')}
-              value={draft.body}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, body: e.target.value }))
-              }
-              placeholder="Hello, thanks for contacting Pelican741"
-            />
-          </label>
-          {create.isError ? (
-            <p className="text-sm text-red-600">{getErrorMessage(create.error)}</p>
-          ) : null}
         </div>
       </Modal>
 
@@ -404,6 +652,10 @@ export function TemplatesPage() {
         }
       >
         <div className="space-y-3">
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            Fetches all approved templates from Meta for the selected account.
+            Templates previously removed here will be restored.
+          </p>
           <label className="block space-y-1.5">
             <span className={fieldLabelClass}>WhatsApp account</span>
             <select

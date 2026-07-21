@@ -571,31 +571,47 @@ export class ListAuditLogsHandler {
 export class GetDashboardHandler {
   constructor(private readonly prisma: PrismaService) {}
 
-  async execute(organizationId: string, rangeDays = 7) {
-    const days = [7, 30, 90].includes(rangeDays) ? rangeDays : 7;
-    const startOfDay = new Date();
-    startOfDay.setUTCHours(0, 0, 0, 0);
-    const startOfYesterday = new Date(startOfDay);
-    startOfYesterday.setUTCDate(startOfYesterday.getUTCDate() - 1);
-    const seriesFrom = new Date(startOfDay);
-    seriesFrom.setUTCDate(seriesFrom.getUTCDate() - (days - 1));
+  async execute(
+    organizationId: string,
+    options: { from?: Date; to?: Date; rangeDays?: number } = {},
+  ) {
+    const now = new Date();
+    const defaultTo = endOfUtcDay(now);
+    const defaultFrom = startOfUtcDay(now);
+
+    const to = options.to ?? defaultTo;
+    const from = options.from ?? defaultFrom;
+
+    const periodMs = Math.max(0, to.getTime() - from.getTime());
+    const prevTo = new Date(from.getTime() - 1);
+    const prevFrom = new Date(prevTo.getTime() - periodMs);
+
+    const inPeriod = { gte: from, lte: to } as const;
+    const inPrevPeriod = { gte: prevFrom, lte: prevTo } as const;
+
+    const dayCount = Math.max(
+      1,
+      Math.ceil((startOfUtcDay(to).getTime() - startOfUtcDay(from).getTime()) /
+        (24 * 60 * 60 * 1000)) + 1,
+    );
+    const seriesFrom = startOfUtcDay(from);
 
     const [
-      messagesToday,
+      messagesInPeriod,
       openConversations,
-      failedToday,
-      inboundToday,
-      outboundToday,
-      newContactsToday,
-      messagesYesterday,
-      newContactsYesterday,
-      openConversationsYesterday,
+      failedInPeriod,
+      inboundInPeriod,
+      outboundInPeriod,
+      newContactsInPeriod,
+      messagesInPrevPeriod,
+      newContactsInPrevPeriod,
+      openConversationsPrev,
       recentStats,
       recentMessages,
       recentContacts,
     ] = await Promise.all([
       this.prisma.message.count({
-        where: { organizationId, createdAt: { gte: startOfDay } },
+        where: { organizationId, createdAt: inPeriod },
       }),
       this.prisma.conversation.count({
         where: {
@@ -608,41 +624,38 @@ export class GetDashboardHandler {
         where: {
           organizationId,
           status: 'FAILED',
-          createdAt: { gte: startOfDay },
+          createdAt: inPeriod,
         },
       }),
       this.prisma.message.count({
         where: {
           organizationId,
           direction: 'INBOUND',
-          createdAt: { gte: startOfDay },
+          createdAt: inPeriod,
         },
       }),
       this.prisma.message.count({
         where: {
           organizationId,
           direction: 'OUTBOUND',
-          createdAt: { gte: startOfDay },
+          createdAt: inPeriod,
         },
       }),
       this.prisma.contact.count({
         where: {
           organizationId,
           deletedAt: null,
-          createdAt: { gte: startOfDay },
+          createdAt: inPeriod,
         },
       }),
       this.prisma.message.count({
-        where: {
-          organizationId,
-          createdAt: { gte: startOfYesterday, lt: startOfDay },
-        },
+        where: { organizationId, createdAt: inPrevPeriod },
       }),
       this.prisma.contact.count({
         where: {
           organizationId,
           deletedAt: null,
-          createdAt: { gte: startOfYesterday, lt: startOfDay },
+          createdAt: inPrevPeriod,
         },
       }),
       this.prisma.conversation.count({
@@ -650,20 +663,20 @@ export class GetDashboardHandler {
           organizationId,
           status: ConversationStatus.OPEN,
           deletedAt: null,
-          createdAt: { lt: startOfDay },
+          createdAt: { lte: prevTo },
         },
       }),
       this.prisma.analyticsDailyStat.findMany({
         where: {
           organizationId,
-          date: { gte: seriesFrom },
+          date: { gte: seriesFrom, lte: to },
         },
         orderBy: { date: 'asc' },
       }),
       this.prisma.message.findMany({
-        where: { organizationId },
+        where: { organizationId, createdAt: inPeriod },
         orderBy: { createdAt: 'desc' },
-        take: 10,
+        take: 15,
         select: {
           id: true,
           direction: true,
@@ -673,9 +686,13 @@ export class GetDashboardHandler {
         },
       }),
       this.prisma.contact.findMany({
-        where: { organizationId, deletedAt: null },
+        where: {
+          organizationId,
+          deletedAt: null,
+          createdAt: inPeriod,
+        },
         orderBy: { createdAt: 'desc' },
-        take: 10,
+        take: 15,
         select: {
           id: true,
           displayName: true,
@@ -689,9 +706,10 @@ export class GetDashboardHandler {
       string,
       { day: string; inbound: number; outbound: number }
     >();
-    for (let i = 0; i < days; i++) {
+    for (let i = 0; i < dayCount; i++) {
       const d = new Date(seriesFrom);
       d.setUTCDate(seriesFrom.getUTCDate() + i);
+      if (d > to) break;
       const key = d.toISOString().slice(0, 10);
       byDay.set(key, { day: key, inbound: 0, outbound: 0 });
     }
@@ -709,7 +727,7 @@ export class GetDashboardHandler {
       const msgs = await this.prisma.message.findMany({
         where: {
           organizationId,
-          createdAt: { gte: seriesFrom },
+          createdAt: inPeriod,
         },
         select: { createdAt: true, direction: true },
       });
@@ -757,23 +775,37 @@ export class GetDashboardHandler {
 
     return {
       live: {
-        messagesToday,
-        inboundToday,
-        outboundToday,
+        messagesToday: messagesInPeriod,
+        inboundToday: inboundInPeriod,
+        outboundToday: outboundInPeriod,
         openConversations,
-        failedToday,
-        newContactsToday,
-        messagesYesterday,
-        newContactsYesterday,
-        openConversationsYesterday,
+        failedToday: failedInPeriod,
+        newContactsToday: newContactsInPeriod,
+        messagesYesterday: messagesInPrevPeriod,
+        newContactsYesterday: newContactsInPrevPeriod,
+        openConversationsYesterday: openConversationsPrev,
       },
       last7Days: aggregated,
       dailyStats: recentStats,
       series: Array.from(byDay.values()),
       activity,
-      rangeDays: days,
+      rangeDays: dayCount,
+      from: from.toISOString(),
+      to: to.toISOString(),
     };
   }
+}
+
+function startOfUtcDay(date: Date): Date {
+  const d = new Date(date);
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
+function endOfUtcDay(date: Date): Date {
+  const d = new Date(date);
+  d.setUTCHours(23, 59, 59, 999);
+  return d;
 }
 
 @Injectable()
