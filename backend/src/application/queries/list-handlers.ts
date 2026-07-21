@@ -227,9 +227,48 @@ export class GetMessageHandler {
   async execute(organizationId: string, id: string) {
     const message = await this.prisma.message.findFirst({
       where: { id, organizationId },
-      include: { statusHistory: { orderBy: { createdAt: 'asc' } } },
+      include: {
+        statusHistory: { orderBy: { createdAt: 'asc' } },
+        failedMessage: true,
+        media: true,
+      },
     });
     if (!message) throw new NotFoundError('Message', id);
-    return message;
+
+    const [outboxEvents, webhookCandidates] = await Promise.all([
+      this.prisma.outboxEvent.findMany({
+        where: {
+          organizationId,
+          aggregateType: 'Message',
+          aggregateId: message.id,
+        },
+        orderBy: { createdAt: 'asc' },
+      }),
+      message.providerMessageId
+        ? this.prisma.webhookEvent.findMany({
+            where: {
+              organizationId,
+              communicationAccountId: message.communicationAccountId,
+              createdAt: {
+                gte: new Date(message.createdAt.getTime() - 60 * 60 * 1000),
+              },
+            },
+            orderBy: { createdAt: 'asc' },
+            take: 500,
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const webhookEvents = message.providerMessageId
+      ? webhookCandidates.filter((event) =>
+          JSON.stringify(event.payload).includes(message.providerMessageId!),
+        )
+      : [];
+
+    return {
+      ...message,
+      outboxEvents,
+      webhookEvents,
+    };
   }
 }

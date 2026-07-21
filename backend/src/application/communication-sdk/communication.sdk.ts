@@ -356,25 +356,55 @@ export class CommunicationSdk {
       });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      await this.prisma.message.update({
-        where: { id: messageId },
-        data: {
-          status: MessageStatus.FAILED,
-          errorMessage,
-        },
-      });
-      await this.prisma.failedMessage.upsert({
-        where: { messageId },
-        create: {
-          id: this.identifiers.generate(),
-          organizationId: message.organizationId,
-          messageId,
-          errorMessage,
-        },
-        update: {
-          errorMessage,
-          retryCount: { increment: 1 },
-        },
+      const errorCode =
+        err && typeof err === 'object' && 'code' in err
+          ? String(err.code)
+          : undefined;
+      const errorDetails =
+        err && typeof err === 'object' && 'details' in err
+          ? err.details
+          : undefined;
+      const failureMetadata = {
+        errorCode,
+        errorMessage,
+        errorName: err instanceof Error ? err.name : undefined,
+        details: errorDetails,
+      };
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.message.update({
+          where: { id: messageId },
+          data: {
+            status: MessageStatus.FAILED,
+            errorCode,
+            errorMessage,
+          },
+        });
+        await tx.failedMessage.upsert({
+          where: { messageId },
+          create: {
+            id: this.identifiers.generate(),
+            organizationId: message.organizationId,
+            messageId,
+            errorCode,
+            errorMessage,
+            payload: failureMetadata as Prisma.InputJsonValue,
+          },
+          update: {
+            errorCode,
+            errorMessage,
+            payload: failureMetadata as Prisma.InputJsonValue,
+            retryCount: { increment: 1 },
+          },
+        });
+        await tx.messageStatusHistory.create({
+          data: {
+            id: this.identifiers.generate(),
+            messageId,
+            status: MessageStatus.FAILED,
+            metadata: failureMetadata as Prisma.InputJsonValue,
+          },
+        });
       });
       await this.outbox.write({
         organizationId: message.organizationId,

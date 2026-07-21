@@ -1,5 +1,6 @@
 import { ReactNode, useEffect } from 'react';
 import { Button } from './Button';
+import { cn } from '../../lib/utils';
 
 type Props = {
   open: boolean;
@@ -7,9 +8,10 @@ type Props = {
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
+  className?: string;
 };
 
-export function Modal({ open, title, onClose, children, footer }: Props) {
+export function Modal({ open, title, onClose, children, footer, className }: Props) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -29,7 +31,12 @@ export function Modal({ open, title, onClose, children, footer }: Props) {
         aria-label="Close dialog"
         onClick={onClose}
       />
-      <div className="relative z-10 w-full max-w-lg rounded-lg border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-950">
+      <div
+        className={cn(
+          'relative z-10 w-full max-w-lg rounded-lg border border-zinc-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-950',
+          className,
+        )}
+      >
         <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
           <h3 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">
             {title}

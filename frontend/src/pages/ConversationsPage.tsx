@@ -21,6 +21,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { EmptyState } from '../components/ui/EmptyState';
 import { AccountBadge, formatAccountLabel } from '../components/ui/AccountBadge';
+import { MessageDiagnosticsModal } from '../components/messages/MessageDiagnosticsModal';
 import { cn, formatDate } from '../lib/utils';
 
 type Tag = { id: string; name: string; color?: string };
@@ -155,8 +156,11 @@ function MessageTicks({ status }: { status?: string }) {
   if (s === 'READ') {
     return <CheckCheck className="h-3.5 w-3.5 text-[#53bdeb]" />;
   }
-  if (s === 'DELIVERED' || s === 'SENT') {
+  if (s === 'DELIVERED') {
     return <CheckCheck className="h-3.5 w-3.5 text-[#667781]" />;
+  }
+  if (s === 'SENT') {
+    return <Check className="h-3.5 w-3.5 text-[#667781]" />;
   }
   if (s === 'QUEUED' || s === 'PENDING') {
     return <Clock className="h-3 w-3 text-[#667781]" />;
@@ -182,6 +186,9 @@ export function ConversationsPage() {
   const [tagIdToAdd, setTagIdToAdd] = useState('');
   const [templateId, setTemplateId] = useState('');
   const [composerMode, setComposerMode] = useState<'text' | 'template'>('text');
+  const [diagnosticMessageId, setDiagnosticMessageId] = useState<string | null>(
+    null,
+  );
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
 
@@ -907,7 +914,15 @@ export function ConversationsPage() {
                               {formatBubbleTime(m.createdAt)}
                             </span>
                             {outbound ? (
-                              <MessageTicks status={m.status} />
+                              <button
+                                type="button"
+                                className="rounded p-0.5 hover:bg-black/10 focus:outline-none focus:ring-2 focus:ring-[#00a884]"
+                                title="View delivery details"
+                                aria-label={`View ${m.status || 'message'} delivery details`}
+                                onClick={() => setDiagnosticMessageId(m.id)}
+                              >
+                                <MessageTicks status={m.status} />
+                              </button>
                             ) : null}
                           </div>
                         </div>
@@ -1162,6 +1177,11 @@ export function ConversationsPage() {
           )}
         </aside>
       </div>
+      <MessageDiagnosticsModal
+        messageId={diagnosticMessageId}
+        organizationId={orgId}
+        onClose={() => setDiagnosticMessageId(null)}
+      />
     </div>
   );
 }

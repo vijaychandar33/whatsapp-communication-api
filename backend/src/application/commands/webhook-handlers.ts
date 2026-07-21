@@ -395,6 +395,9 @@ export class ProcessWebhookHandler {
           await this.applyStatusUpdate(account, event.providerMessageId, event.status, {
             errorCode: event.errorCode,
             errorMessage: event.errorMessage,
+            providerTimestamp: event.timestamp,
+            webhookEventId: eventId,
+            raw: event.raw,
           });
         } else if (event.kind === 'inbound_message') {
           await this.ingestInbound(account, event);
@@ -419,7 +422,13 @@ export class ProcessWebhookHandler {
     account: { organizationId: string; channelCode: ChannelCode },
     providerMessageId: string,
     status: string,
-    extra?: { errorCode?: string; errorMessage?: string },
+    extra?: {
+      errorCode?: string;
+      errorMessage?: string;
+      providerTimestamp?: string;
+      webhookEventId?: string;
+      raw?: Record<string, unknown>;
+    },
   ): Promise<void> {
     if (!providerMessageId) return;
 
