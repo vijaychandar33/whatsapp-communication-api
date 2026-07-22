@@ -206,6 +206,7 @@ model Organization {
   aiConfig              AiConfig?
   knowledgeDocuments    KnowledgeDocument[]
   aiUsageLogs           AiUsageLog[]
+  contactAccountIdentities ContactAccountIdentity[]
 
   @@map("organizations")
 }
@@ -455,6 +456,7 @@ model CommunicationAccount {
   webhookEvents WebhookEvent[]
   broadcasts   Broadcast[]
   messageTemplates MessageTemplate[]
+  contactIdentities ContactAccountIdentity[]
 
   @@index([organizationId, channelCode])
   @@map("communication_accounts")
@@ -480,10 +482,38 @@ model Contact {
   tags          ContactTag[]
   notes         ContactNote[]
   broadcastRecipients BroadcastRecipient[]
+  accountIdentities ContactAccountIdentity[]
 
   @@unique([organizationId, phoneNumber])
   @@index([organizationId, email])
   @@map("contacts")
+}
+
+/// Meta Business-Scoped User ID (BSUID) per Contact × CommunicationAccount.
+/// BSUIDs are portfolio-scoped; the same phone can have a different BSUID per WABA connection.
+model ContactAccountIdentity {
+  id                     String   @id @default(uuid())
+  organizationId         String   @map("organization_id")
+  contactId              String   @map("contact_id")
+  communicationAccountId String   @map("communication_account_id")
+  /// Meta `user_id` / `from_user_id` / `recipient_user_id` (e.g. US.13491208655302741918)
+  bsuid                  String?  @map("bsuid") @db.VarChar(160)
+  /// Meta `parent_user_id` when parent BSUIDs are enrolled
+  parentBsuid            String?  @map("parent_bsuid") @db.VarChar(160)
+  /// Meta profile.username when present
+  username               String?  @db.VarChar(128)
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  organization           Organization         @relation(fields: [organizationId], references: [id])
+  contact                Contact              @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  communicationAccount   CommunicationAccount @relation(fields: [communicationAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, communicationAccountId])
+  @@unique([communicationAccountId, bsuid])
+  @@index([organizationId, bsuid])
+  @@index([contactId])
+  @@map("contact_account_identities")
 }
 
 model Tag {

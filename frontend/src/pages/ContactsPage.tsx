@@ -31,6 +31,9 @@ type Contact = {
     id: string;
     name?: string | null;
     phoneNumber?: string | null;
+    bsuid?: string | null;
+    parentBsuid?: string | null;
+    username?: string | null;
   }[];
 };
 
@@ -358,11 +361,39 @@ export function ContactsPage() {
                     <div className="mb-1 text-xs font-semibold uppercase text-slate-400">
                       WhatsApp accounts
                     </div>
-                    <AccountBadge
-                      account={
-                        (detail.data as Contact | undefined)?.whatsappAccounts
-                      }
-                    />
+                    {((detail.data as Contact | undefined)?.whatsappAccounts || [])
+                      .length === 0 ? (
+                      <AccountBadge account={undefined} />
+                    ) : (
+                      <ul className="space-y-2">
+                        {(
+                          (detail.data as Contact | undefined)
+                            ?.whatsappAccounts || []
+                        ).map((account) => {
+                          const label = [
+                            account.name?.trim(),
+                            account.phoneNumber?.trim(),
+                          ]
+                            .filter(Boolean)
+                            .join(' · ');
+                          return (
+                            <li
+                              key={account.id}
+                              className="rounded-md border border-slate-100 bg-slate-50 px-2.5 py-2"
+                            >
+                              <div className="text-sm font-medium text-slate-800">
+                                {label || 'WhatsApp connection'}
+                              </div>
+                              <div className="mt-0.5 font-mono text-xs text-slate-500">
+                                {account.bsuid
+                                  ? `BSUID: ${account.bsuid}`
+                                  : 'BSUID: —'}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
                   </div>
                 </div>
 

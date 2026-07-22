@@ -36,6 +36,9 @@ export interface UploadMediaParams {
 export interface ProviderSendResult {
   providerMessageId: string;
   rawPayload: Record<string, unknown>;
+  /** Meta BSUID from send response contacts[].user_id when present */
+  recipientUserId?: string;
+  recipientParentUserId?: string;
 }
 
 export interface ProviderUploadResult {
@@ -53,17 +56,27 @@ export interface ChannelAccountContext {
   metadata?: Record<string, unknown>;
 }
 
-export type ParsedWebhookKind = 'inbound_message' | 'status_update' | 'unknown';
+export type ParsedWebhookKind =
+  | 'inbound_message'
+  | 'status_update'
+  | 'user_id_change'
+  | 'unknown';
 
 export interface ParsedWebhookInbound {
   kind: 'inbound_message';
   providerMessageId: string;
+  /** Phone when present; may be empty for username adopters */
   from: string;
+  /** Meta BSUID (`from_user_id` / contacts[].user_id) */
+  fromUserId?: string;
+  /** Meta parent BSUID when enrolled */
+  fromParentUserId?: string;
   timestamp?: string;
   messageType: string;
   body?: string;
   content: Record<string, unknown>;
   contactName?: string;
+  username?: string;
   raw: Record<string, unknown>;
 }
 
@@ -74,6 +87,27 @@ export interface ParsedWebhookStatus {
   timestamp?: string;
   errorCode?: string;
   errorMessage?: string;
+  /** Meta BSUID (`recipient_user_id` / contacts[].user_id) */
+  recipientUserId?: string;
+  recipientParentUserId?: string;
+  contactName?: string;
+  username?: string;
+  /** Phone from contacts[].wa_id when present */
+  recipientPhone?: string;
+  raw: Record<string, unknown>;
+}
+
+/** System message when a WhatsApp user changes phone → new BSUID */
+export interface ParsedWebhookUserIdChange {
+  kind: 'user_id_change';
+  providerMessageId: string;
+  /** Old phone / from field when present */
+  from?: string;
+  /** New BSUID from system.user_id */
+  newUserId?: string;
+  newParentUserId?: string;
+  /** New phone from system.wa_id when present */
+  newPhone?: string;
   raw: Record<string, unknown>;
 }
 
@@ -85,6 +119,7 @@ export interface ParsedWebhookUnknown {
 export type ParsedWebhookEvent =
   | ParsedWebhookInbound
   | ParsedWebhookStatus
+  | ParsedWebhookUserIdChange
   | ParsedWebhookUnknown;
 
 export interface SyncedTemplate {

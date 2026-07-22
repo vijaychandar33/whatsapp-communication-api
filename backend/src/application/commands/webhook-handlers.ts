@@ -398,9 +398,14 @@ export class ProcessWebhookHandler {
             providerTimestamp: event.timestamp,
             webhookEventId: eventId,
             raw: event.raw,
+            recipientUserId: event.recipientUserId,
+            recipientParentUserId: event.recipientParentUserId,
+            username: event.username,
           });
         } else if (event.kind === 'inbound_message') {
           await this.ingestInbound(account, event);
+        } else if (event.kind === 'user_id_change') {
+          await this.applyUserIdChange(account, event);
         }
       }
 
@@ -419,7 +424,7 @@ export class ProcessWebhookHandler {
   }
 
   private async applyStatusUpdate(
-    account: { organizationId: string; channelCode: ChannelCode },
+    account: { id: string; organizationId: string; channelCode: ChannelCode },
     providerMessageId: string,
     status: string,
     extra?: {
@@ -428,6 +433,9 @@ export class ProcessWebhookHandler {
       providerTimestamp?: string;
       webhookEventId?: string;
       raw?: Record<string, unknown>;
+      recipientUserId?: string;
+      recipientParentUserId?: string;
+      username?: string;
     },
   ): Promise<void> {
     if (!providerMessageId) return;
@@ -484,6 +492,22 @@ export class ProcessWebhookHandler {
       );
     });
 
+    // Persist BSUID from status webhooks (contacts.user_id / recipient_user_id)
+    if (extra?.recipientUserId || extra?.recipientParentUserId || extra?.username) {
+      await this.upsertContactAccountIdentity({
+        organizationId: account.organizationId,
+        contactId: message.contactId,
+        communicationAccountId: message.communicationAccountId,
+        bsuid: extra.recipientUserId,
+        parentBsuid: extra.recipientParentUserId,
+        username: extra.username,
+      }).catch((err) => {
+        this.logger.warn(
+          `BSUID upsert on status failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+    }
+
     const recipientStatus =
       next === MessageStatus.SENT
         ? BroadcastRecipientStatus.SENT
@@ -501,6 +525,85 @@ export class ProcessWebhookHandler {
     }
   }
 
+  private async applyUserIdChange(
+    account: {
+      id: string;
+      organizationId: string;
+      channelCode: ChannelCode;
+    },
+    event: {
+      from?: string;
+      newUserId?: string;
+      newParentUserId?: string;
+      newPhone?: string;
+    },
+  ): Promise<void> {
+    if (!event.newUserId && !event.newParentUserId && !event.newPhone) return;
+
+    let contactId: string | null = null;
+
+    if (event.from) {
+      const phone = PhoneNumber.tryCreate(event.from)?.toString();
+      if (phone) {
+        const byPhone = await this.prisma.contact.findUnique({
+          where: {
+            organizationId_phoneNumber: {
+              organizationId: account.organizationId,
+              phoneNumber: phone,
+            },
+          },
+        });
+        if (byPhone && !byPhone.deletedAt) contactId = byPhone.id;
+      }
+    }
+
+    if (!contactId) {
+      // Fall back: identity already linked to this account (old BSUID unknown here)
+      const openConv = await this.prisma.conversation.findFirst({
+        where: {
+          organizationId: account.organizationId,
+          communicationAccountId: account.id,
+          deletedAt: null,
+          ...(event.from
+            ? {
+                contact: {
+                  phoneNumber: PhoneNumber.tryCreate(event.from)?.toString(),
+                },
+              }
+            : {}),
+        },
+        orderBy: { lastMessageAt: 'desc' },
+      });
+      contactId = openConv?.contactId ?? null;
+    }
+
+    if (!contactId) return;
+
+    if (event.newPhone) {
+      const phone = PhoneNumber.tryCreate(event.newPhone)?.toString();
+      if (phone) {
+        await this.prisma.contact
+          .update({
+            where: { id: contactId },
+            data: { phoneNumber: phone },
+          })
+          .catch((err) => {
+            this.logger.warn(
+              `Phone update on user_id_change failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          });
+      }
+    }
+
+    await this.upsertContactAccountIdentity({
+      organizationId: account.organizationId,
+      contactId,
+      communicationAccountId: account.id,
+      bsuid: event.newUserId,
+      parentBsuid: event.newParentUserId,
+    });
+  }
+
   private async ingestInbound(
     account: {
       id: string;
@@ -510,14 +613,18 @@ export class ProcessWebhookHandler {
     event: {
       providerMessageId: string;
       from: string;
+      fromUserId?: string;
+      fromParentUserId?: string;
       messageType: string;
       body?: string;
       content: Record<string, unknown>;
       contactName?: string;
+      username?: string;
       raw: Record<string, unknown>;
     },
   ): Promise<void> {
-    if (!event.providerMessageId || !event.from) return;
+    if (!event.providerMessageId) return;
+    if (!event.from && !event.fromUserId) return;
 
     const dup = await this.prisma.message.findFirst({
       where: {
@@ -527,16 +634,38 @@ export class ProcessWebhookHandler {
     });
     if (dup) return;
 
-    const phoneNumber = PhoneNumber.create(event.from).toString();
+    const phoneNumber = event.from
+      ? PhoneNumber.tryCreate(event.from)?.toString()
+      : undefined;
 
-    let contact = await this.prisma.contact.findUnique({
-      where: {
-        organizationId_phoneNumber: {
-          organizationId: account.organizationId,
-          phoneNumber,
+    let contact =
+      (phoneNumber
+        ? await this.prisma.contact.findUnique({
+            where: {
+              organizationId_phoneNumber: {
+                organizationId: account.organizationId,
+                phoneNumber,
+              },
+            },
+          })
+        : null) ?? null;
+
+    // Resolve by BSUID on this WhatsApp connection when phone is missing/unknown
+    if ((!contact || contact.deletedAt) && event.fromUserId) {
+      const identity = await this.prisma.contactAccountIdentity.findUnique({
+        where: {
+          communicationAccountId_bsuid: {
+            communicationAccountId: account.id,
+            bsuid: event.fromUserId,
+          },
         },
-      },
-    });
+        include: { contact: true },
+      });
+      if (identity?.contact && !identity.contact.deletedAt) {
+        contact = identity.contact;
+      }
+    }
+
     if (!contact || contact.deletedAt) {
       if (contact?.deletedAt) {
         contact = await this.prisma.contact.update({
@@ -544,6 +673,9 @@ export class ProcessWebhookHandler {
           data: {
             deletedAt: null,
             displayName: event.contactName ?? contact.displayName,
+            ...(phoneNumber && !contact.phoneNumber
+              ? { phoneNumber }
+              : {}),
           },
         });
       } else {
@@ -551,17 +683,35 @@ export class ProcessWebhookHandler {
           data: {
             id: this.identifiers.generate(),
             organizationId: account.organizationId,
-            phoneNumber,
+            phoneNumber: phoneNumber ?? null,
             displayName: event.contactName,
           },
         });
       }
-    } else if (event.contactName && !contact.displayName) {
-      contact = await this.prisma.contact.update({
-        where: { id: contact.id },
-        data: { displayName: event.contactName },
-      });
+    } else {
+      const patch: Prisma.ContactUpdateInput = {};
+      if (event.contactName && !contact.displayName) {
+        patch.displayName = event.contactName;
+      }
+      if (phoneNumber && !contact.phoneNumber) {
+        patch.phoneNumber = phoneNumber;
+      }
+      if (Object.keys(patch).length > 0) {
+        contact = await this.prisma.contact.update({
+          where: { id: contact.id },
+          data: patch,
+        });
+      }
     }
+
+    await this.upsertContactAccountIdentity({
+      organizationId: account.organizationId,
+      contactId: contact.id,
+      communicationAccountId: account.id,
+      bsuid: event.fromUserId,
+      parentBsuid: event.fromParentUserId,
+      username: event.username,
+    });
 
     let conversation = await this.prisma.conversation.findFirst({
       where: {
@@ -668,6 +818,91 @@ export class ProcessWebhookHandler {
 
     setImmediate(() => {
       void this.ai.tryAutoReply(account.organizationId, conversation!.id);
+    });
+  }
+
+  /**
+   * Upsert Meta BSUID (and related identity fields) for Contact × WhatsApp connection.
+   * Empty/missing values are left unchanged — never wipe an existing BSUID with null.
+   */
+  private async upsertContactAccountIdentity(input: {
+    organizationId: string;
+    contactId: string;
+    communicationAccountId: string;
+    bsuid?: string | null;
+    parentBsuid?: string | null;
+    username?: string | null;
+  }): Promise<void> {
+    const bsuid = input.bsuid?.trim() || undefined;
+    const parentBsuid = input.parentBsuid?.trim() || undefined;
+    const username = input.username?.trim() || undefined;
+    if (!bsuid && !parentBsuid && !username) return;
+
+    const patch = {
+      ...(bsuid ? { bsuid } : {}),
+      ...(parentBsuid ? { parentBsuid } : {}),
+      ...(username ? { username } : {}),
+    };
+
+    const byPair = await this.prisma.contactAccountIdentity.findUnique({
+      where: {
+        contactId_communicationAccountId: {
+          contactId: input.contactId,
+          communicationAccountId: input.communicationAccountId,
+        },
+      },
+    });
+
+    const byBsuid = bsuid
+      ? await this.prisma.contactAccountIdentity.findUnique({
+          where: {
+            communicationAccountId_bsuid: {
+              communicationAccountId: input.communicationAccountId,
+              bsuid,
+            },
+          },
+        })
+      : null;
+
+    if (byPair && byBsuid && byPair.id !== byBsuid.id) {
+      await this.prisma.$transaction([
+        this.prisma.contactAccountIdentity.update({
+          where: { id: byPair.id },
+          data: patch,
+        }),
+        this.prisma.contactAccountIdentity.delete({
+          where: { id: byBsuid.id },
+        }),
+      ]);
+      return;
+    }
+
+    if (byPair) {
+      await this.prisma.contactAccountIdentity.update({
+        where: { id: byPair.id },
+        data: patch,
+      });
+      return;
+    }
+
+    if (byBsuid) {
+      await this.prisma.contactAccountIdentity.update({
+        where: { id: byBsuid.id },
+        data: { contactId: input.contactId, ...patch },
+      });
+      return;
+    }
+
+    await this.prisma.contactAccountIdentity.create({
+      data: {
+        id: this.identifiers.generate(),
+        organizationId: input.organizationId,
+        contactId: input.contactId,
+        communicationAccountId: input.communicationAccountId,
+        bsuid: bsuid ?? null,
+        parentBsuid: parentBsuid ?? null,
+        username: username ?? null,
+      },
     });
   }
 

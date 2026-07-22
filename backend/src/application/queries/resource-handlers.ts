@@ -172,6 +172,20 @@ export class ListContactsHandler {
         orderBy: { createdAt: 'desc' },
         include: {
           tags: { include: { tag: true } },
+          accountIdentities: {
+            select: {
+              bsuid: true,
+              parentBsuid: true,
+              username: true,
+              communicationAccount: {
+                select: {
+                  id: true,
+                  name: true,
+                  phoneNumber: true,
+                },
+              },
+            },
+          },
           conversations: {
             where: { deletedAt: null },
             select: {
@@ -191,19 +205,14 @@ export class ListContactsHandler {
     ]);
     return {
       data: items.map((c) => {
-        const accountsById = new Map<
-          string,
-          { id: string; name: string; phoneNumber: string | null }
-        >();
-        for (const conv of c.conversations) {
-          const a = conv.communicationAccount;
-          if (a) accountsById.set(a.id, a);
-        }
-        const { conversations: _conversations, ...rest } = c;
+        const { conversations: _conversations, accountIdentities, ...rest } = c;
         return {
           ...rest,
           tags: c.tags.map((t) => t.tag),
-          whatsappAccounts: [...accountsById.values()],
+          whatsappAccounts: this.mergeWhatsappAccounts(
+            c.conversations,
+            accountIdentities,
+          ),
         };
       }),
       meta: buildPaginatedMeta(
@@ -212,6 +221,59 @@ export class ListContactsHandler {
         total,
       ),
     };
+  }
+
+  private mergeWhatsappAccounts(
+    conversations: Array<{
+      communicationAccount: {
+        id: string;
+        name: string;
+        phoneNumber: string | null;
+      } | null;
+    }>,
+    identities: Array<{
+      bsuid: string | null;
+      parentBsuid: string | null;
+      username: string | null;
+      communicationAccount: {
+        id: string;
+        name: string;
+        phoneNumber: string | null;
+      };
+    }>,
+  ) {
+    const accountsById = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        phoneNumber: string | null;
+        bsuid: string | null;
+        parentBsuid: string | null;
+        username: string | null;
+      }
+    >();
+    for (const conv of conversations) {
+      const a = conv.communicationAccount;
+      if (!a) continue;
+      accountsById.set(a.id, {
+        ...a,
+        bsuid: null,
+        parentBsuid: null,
+        username: null,
+      });
+    }
+    for (const identity of identities) {
+      const a = identity.communicationAccount;
+      const existing = accountsById.get(a.id);
+      accountsById.set(a.id, {
+        ...(existing ?? a),
+        bsuid: identity.bsuid,
+        parentBsuid: identity.parentBsuid,
+        username: identity.username,
+      });
+    }
+    return [...accountsById.values()];
   }
 }
 
@@ -225,6 +287,20 @@ export class GetContactHandler {
       include: {
         tags: { include: { tag: true } },
         notes: { orderBy: { createdAt: 'desc' }, take: 50 },
+        accountIdentities: {
+          select: {
+            bsuid: true,
+            parentBsuid: true,
+            username: true,
+            communicationAccount: {
+              select: {
+                id: true,
+                name: true,
+                phoneNumber: true,
+              },
+            },
+          },
+        },
         conversations: {
           where: { deletedAt: null },
           select: {
@@ -241,20 +317,69 @@ export class GetContactHandler {
       },
     });
     if (!contact) throw new NotFoundError('Contact', id);
-    const accountsById = new Map<
-      string,
-      { id: string; name: string; phoneNumber: string | null }
-    >();
-    for (const conv of contact.conversations) {
-      const a = conv.communicationAccount;
-      if (a) accountsById.set(a.id, a);
-    }
-    const { conversations: _conversations, ...rest } = contact;
+    const { conversations: _conversations, accountIdentities, ...rest } =
+      contact;
     return {
       ...rest,
       tags: contact.tags.map((t) => t.tag),
-      whatsappAccounts: [...accountsById.values()],
+      whatsappAccounts: this.mergeWhatsappAccounts(
+        contact.conversations,
+        accountIdentities,
+      ),
     };
+  }
+
+  private mergeWhatsappAccounts(
+    conversations: Array<{
+      communicationAccount: {
+        id: string;
+        name: string;
+        phoneNumber: string | null;
+      } | null;
+    }>,
+    identities: Array<{
+      bsuid: string | null;
+      parentBsuid: string | null;
+      username: string | null;
+      communicationAccount: {
+        id: string;
+        name: string;
+        phoneNumber: string | null;
+      };
+    }>,
+  ) {
+    const accountsById = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        phoneNumber: string | null;
+        bsuid: string | null;
+        parentBsuid: string | null;
+        username: string | null;
+      }
+    >();
+    for (const conv of conversations) {
+      const a = conv.communicationAccount;
+      if (!a) continue;
+      accountsById.set(a.id, {
+        ...a,
+        bsuid: null,
+        parentBsuid: null,
+        username: null,
+      });
+    }
+    for (const identity of identities) {
+      const a = identity.communicationAccount;
+      const existing = accountsById.get(a.id);
+      accountsById.set(a.id, {
+        ...(existing ?? a),
+        bsuid: identity.bsuid,
+        parentBsuid: identity.parentBsuid,
+        username: identity.username,
+      });
+    }
+    return [...accountsById.values()];
   }
 }
 

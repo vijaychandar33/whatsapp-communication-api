@@ -223,9 +223,27 @@ export class WhatsAppChannelProvider implements ChannelProvider {
         const value = change.value as Record<string, unknown> | undefined;
         if (!value) continue;
 
-        const contactName = (
-          value.contacts as Array<{ profile?: { name?: string } }> | undefined
-        )?.[0]?.profile?.name;
+        const contactBlock = (
+          value.contacts as
+            | Array<{
+                profile?: { name?: string; username?: string };
+                wa_id?: string;
+                user_id?: string;
+                parent_user_id?: string;
+              }>
+            | undefined
+        )?.[0];
+        const contactName = contactBlock?.profile?.name;
+        const contactUsername = contactBlock?.profile?.username;
+        const contactUserId = contactBlock?.user_id
+          ? String(contactBlock.user_id)
+          : undefined;
+        const contactParentUserId = contactBlock?.parent_user_id
+          ? String(contactBlock.parent_user_id)
+          : undefined;
+        const contactWaId = contactBlock?.wa_id
+          ? String(contactBlock.wa_id)
+          : undefined;
 
         const statuses =
           (value.statuses as Array<Record<string, unknown>> | undefined) ?? [];
@@ -233,6 +251,15 @@ export class WhatsAppChannelProvider implements ChannelProvider {
           const errors = status.errors as
             | Array<{ code?: number; title?: string; message?: string }>
             | undefined;
+          const recipientUserId = status.recipient_user_id
+            ? String(status.recipient_user_id)
+            : contactUserId;
+          const recipientParentUserId = status.recipient_parent_user_id
+            ? String(status.recipient_parent_user_id)
+            : contactParentUserId;
+          const recipientPhone = status.recipient_id
+            ? String(status.recipient_id)
+            : contactWaId;
           events.push({
             kind: 'status_update',
             providerMessageId: String(status.id ?? ''),
@@ -242,6 +269,11 @@ export class WhatsAppChannelProvider implements ChannelProvider {
               : undefined,
             errorCode: errors?.[0]?.code ? String(errors[0].code) : undefined,
             errorMessage: errors?.[0]?.message ?? errors?.[0]?.title,
+            recipientUserId,
+            recipientParentUserId,
+            contactName,
+            username: contactUsername,
+            recipientPhone,
             raw: status,
           });
         }
@@ -250,21 +282,60 @@ export class WhatsAppChannelProvider implements ChannelProvider {
           (value.messages as Array<Record<string, unknown>> | undefined) ?? [];
         for (const msg of messages) {
           const type = String(msg.type ?? 'text');
+
+          // Phone-number change → new BSUID (system.user_changed_user_id)
+          if (type === 'system') {
+            const system = msg.system as
+              | {
+                  type?: string;
+                  wa_id?: string;
+                  user_id?: string;
+                  parent_user_id?: string;
+                }
+              | undefined;
+            if (system?.type === 'user_changed_user_id') {
+              events.push({
+                kind: 'user_id_change',
+                providerMessageId: String(msg.id ?? ''),
+                from: msg.from ? String(msg.from) : undefined,
+                newUserId: system.user_id
+                  ? String(system.user_id)
+                  : undefined,
+                newParentUserId: system.parent_user_id
+                  ? String(system.parent_user_id)
+                  : undefined,
+                newPhone: system.wa_id ? String(system.wa_id) : undefined,
+                raw: value,
+              });
+              continue;
+            }
+          }
+
           const textBody =
             (msg.text as { body?: string } | undefined)?.body ??
             (msg.button as { text?: string } | undefined)?.text ??
             (msg.interactive as { button_reply?: { title?: string } } | undefined)
               ?.button_reply?.title;
 
+          const fromUserId = msg.from_user_id
+            ? String(msg.from_user_id)
+            : contactUserId;
+          const fromParentUserId = msg.from_parent_user_id
+            ? String(msg.from_parent_user_id)
+            : contactParentUserId;
+
           events.push({
             kind: 'inbound_message',
             providerMessageId: String(msg.id ?? ''),
-            from: String(msg.from ?? ''),
+            from: msg.from ? String(msg.from) : contactWaId ?? '',
+            fromUserId,
+            fromParentUserId,
             timestamp: msg.timestamp ? String(msg.timestamp) : undefined,
             messageType: type,
             body: textBody,
             content: msg,
             contactName,
+            username: contactUsername,
             raw: value,
           });
         }
@@ -487,7 +558,19 @@ export class WhatsAppChannelProvider implements ChannelProvider {
         'Missing provider message id in response',
       );
     }
-    return { providerMessageId, rawPayload: data };
+    const contact = (
+      data.contacts as
+        | Array<{ user_id?: string; parent_user_id?: string }>
+        | undefined
+    )?.[0];
+    return {
+      providerMessageId,
+      rawPayload: data,
+      recipientUserId: contact?.user_id ? String(contact.user_id) : undefined,
+      recipientParentUserId: contact?.parent_user_id
+        ? String(contact.parent_user_id)
+        : undefined,
+    };
   }
 
   private mapProviderError(err: unknown): Error {

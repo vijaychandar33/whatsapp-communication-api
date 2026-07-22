@@ -354,6 +354,21 @@ export class CommunicationSdk {
           tx,
         );
       });
+
+      // Persist BSUID from send response when Meta includes contacts[].user_id
+      if (result.recipientUserId || result.recipientParentUserId) {
+        await this.upsertContactAccountIdentity({
+          organizationId: message.organizationId,
+          contactId: message.contactId,
+          communicationAccountId: message.communicationAccountId,
+          bsuid: result.recipientUserId,
+          parentBsuid: result.recipientParentUserId,
+        }).catch((err) => {
+          this.logger.warn(
+            `BSUID upsert after send failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
+      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       const errorCode =
@@ -543,5 +558,67 @@ export class CommunicationSdk {
         metadata,
       },
     };
+  }
+
+  private async upsertContactAccountIdentity(input: {
+    organizationId: string;
+    contactId: string;
+    communicationAccountId: string;
+    bsuid?: string | null;
+    parentBsuid?: string | null;
+  }): Promise<void> {
+    const bsuid = input.bsuid?.trim() || undefined;
+    const parentBsuid = input.parentBsuid?.trim() || undefined;
+    if (!bsuid && !parentBsuid) return;
+
+    const patch = {
+      ...(bsuid ? { bsuid } : {}),
+      ...(parentBsuid ? { parentBsuid } : {}),
+    };
+
+    const byPair = await this.prisma.contactAccountIdentity.findUnique({
+      where: {
+        contactId_communicationAccountId: {
+          contactId: input.contactId,
+          communicationAccountId: input.communicationAccountId,
+        },
+      },
+    });
+    if (byPair) {
+      await this.prisma.contactAccountIdentity.update({
+        where: { id: byPair.id },
+        data: patch,
+      });
+      return;
+    }
+
+    if (bsuid) {
+      const byBsuid = await this.prisma.contactAccountIdentity.findUnique({
+        where: {
+          communicationAccountId_bsuid: {
+            communicationAccountId: input.communicationAccountId,
+            bsuid,
+          },
+        },
+      });
+      if (byBsuid) {
+        await this.prisma.contactAccountIdentity.update({
+          where: { id: byBsuid.id },
+          data: { contactId: input.contactId, ...patch },
+        });
+        return;
+      }
+    }
+
+    await this.prisma.contactAccountIdentity.create({
+      data: {
+        id: this.identifiers.generate(),
+        organizationId: input.organizationId,
+        contactId: input.contactId,
+        communicationAccountId: input.communicationAccountId,
+        bsuid: bsuid ?? null,
+        parentBsuid: parentBsuid ?? null,
+      },
+    });
   }
 }
