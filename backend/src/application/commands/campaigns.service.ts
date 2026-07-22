@@ -24,12 +24,13 @@ const SEND_BATCH_DELAY_MS = 1000;
 export type AudienceFilter = {
   tagIds?: string[];
   contactIds?: string[];
+  listIds?: string[];
   phones?: string[];
   paramsByContactId?: Record<string, string[]>;
   paramsByPhone?: Record<string, string[]>;
 };
 
-export interface CreateBroadcastInput {
+export interface CreateCampaignInput {
   organizationId: string;
   communicationAccountId: string;
   createdByUserId?: string;
@@ -43,8 +44,8 @@ export interface CreateBroadcastInput {
 }
 
 @Injectable()
-export class BroadcastsService {
-  private readonly logger = new Logger(BroadcastsService.name);
+export class CampaignsService {
+  private readonly logger = new Logger(CampaignsService.name);
   private readonly delivering = new Set<string>();
 
   constructor(
@@ -112,11 +113,11 @@ export class BroadcastsService {
         },
       },
     });
-    if (!broadcast) throw new NotFoundError('Broadcast', id);
+    if (!broadcast) throw new NotFoundError('Campaign', id);
     return broadcast;
   }
 
-  async previewAudience(organizationId: string, input: CreateBroadcastInput) {
+  async previewAudience(organizationId: string, input: CreateCampaignInput) {
     const contacts = await this.resolveAudience(organizationId, input);
     return {
       count: contacts.length,
@@ -128,7 +129,7 @@ export class BroadcastsService {
     };
   }
 
-  async create(input: CreateBroadcastInput) {
+  async create(input: CreateCampaignInput) {
     await this.requireAccount(
       input.organizationId,
       input.communicationAccountId,
@@ -177,13 +178,13 @@ export class BroadcastsService {
     const broadcast = await this.prisma.broadcast.findFirst({
       where: { id, organizationId },
     });
-    if (!broadcast) throw new NotFoundError('Broadcast', id);
+    if (!broadcast) throw new NotFoundError('Campaign', id);
     if (
       broadcast.status !== BroadcastStatus.DRAFT &&
       broadcast.status !== BroadcastStatus.SCHEDULED
     ) {
       throw new ValidationError(
-        `Cannot start broadcast in status ${broadcast.status}`,
+        `Cannot start campaign in status ${broadcast.status}`,
       );
     }
 
@@ -242,12 +243,12 @@ export class BroadcastsService {
     const broadcast = await this.prisma.broadcast.findFirst({
       where: { id, organizationId },
     });
-    if (!broadcast) throw new NotFoundError('Broadcast', id);
+    if (!broadcast) throw new NotFoundError('Campaign', id);
     if (
       broadcast.status === BroadcastStatus.COMPLETED ||
       broadcast.status === BroadcastStatus.CANCELLED
     ) {
-      throw new ValidationError(`Broadcast already ${broadcast.status}`);
+      throw new ValidationError(`Campaign already ${broadcast.status}`);
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -374,7 +375,7 @@ export class BroadcastsService {
             const message =
               err instanceof Error ? err.message : 'Send failed';
             this.logger.warn(
-              `Broadcast ${broadcastId} recipient ${recipient.id}: ${message}`,
+              `Campaign ${broadcastId} recipient ${recipient.id}: ${message}`,
             );
             await this.prisma.broadcastRecipient.update({
               where: { id: recipient.id },
@@ -416,7 +417,7 @@ export class BroadcastsService {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Delivery failed';
-      this.logger.error(`Broadcast ${broadcastId} failed: ${message}`);
+      this.logger.error(`Campaign ${broadcastId} failed: ${message}`);
       await this.prisma.broadcast.update({
         where: { id: broadcastId },
         data: {
@@ -502,7 +503,7 @@ export class BroadcastsService {
     }
   }
 
-  private validateTemplate(input: CreateBroadcastInput) {
+  private validateTemplate(input: CreateCampaignInput) {
     if (!input.name?.trim()) throw new ValidationError('name required');
     if (!input.templateName?.trim()) {
       throw new ValidationError('templateName required');
@@ -524,7 +525,7 @@ export class BroadcastsService {
   private async resolveAudience(
     organizationId: string,
     input: Pick<
-      CreateBroadcastInput,
+      CreateCampaignInput,
       'audienceType' | 'audienceFilter'
     >,
   ): Promise<
@@ -581,6 +582,23 @@ export class BroadcastsService {
           deletedAt: null,
           id: { in: contactIds },
           phoneNumber: { not: null },
+        },
+        select: { id: true, phoneNumber: true, displayName: true },
+        take: MAX_RECIPIENTS + 1,
+      });
+    } else if (input.audienceType === BroadcastAudienceType.CONTACT_LISTS) {
+      const listIds = filter.listIds || [];
+      if (listIds.length === 0) {
+        throw new ValidationError(
+          'listIds required for CONTACT_LISTS audience',
+        );
+      }
+      contacts = await this.prisma.contact.findMany({
+        where: {
+          organizationId,
+          deletedAt: null,
+          phoneNumber: { not: null },
+          listMemberships: { some: { listId: { in: listIds } } },
         },
         select: { id: true, phoneNumber: true, displayName: true },
         take: MAX_RECIPIENTS + 1,

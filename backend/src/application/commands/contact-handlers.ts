@@ -110,8 +110,12 @@ export class UpdateContactHandler {
       data: {
         phoneNumber,
         email,
-        displayName: cmd.displayName,
-        company: cmd.company,
+        displayName:
+          cmd.displayName !== undefined
+            ? cmd.displayName.trim() || null
+            : undefined,
+        company:
+          cmd.company !== undefined ? cmd.company.trim() || null : undefined,
         avatarUrl: cmd.avatarUrl,
         externalId: cmd.externalId,
         metadata:

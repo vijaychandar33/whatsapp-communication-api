@@ -41,7 +41,7 @@ const nav = [
   { to: '/contacts', label: 'Contacts', icon: Contact },
   { to: '/conversations', label: 'Inbox', icon: MessagesSquare },
   { to: '/messages', label: 'Messages', icon: Mail },
-  { to: '/broadcasts', label: 'Broadcasts', icon: Megaphone },
+  { to: '/campaigns', label: 'Campaigns', icon: Megaphone },
   { to: '/agents', label: 'AI Agents', icon: Sparkles },
   { to: '/templates', label: 'Templates', icon: LayoutTemplate },
   { to: '/media', label: 'Media', icon: Image },

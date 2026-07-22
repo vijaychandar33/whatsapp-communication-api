@@ -23,7 +23,7 @@ export const API_KEY_SCOPES = [
   'contacts:write',
   'conversations:read',
   'webhooks:manage',
-  'broadcasts:send',
+  'campaigns:send',
 ] as const;
 
 @Injectable()

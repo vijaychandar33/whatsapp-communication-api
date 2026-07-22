@@ -101,7 +101,7 @@ export function navAllowed(
     '/contacts',
     '/conversations',
     '/messages',
-    '/broadcasts',
+    '/campaigns',
     '/templates',
     '/media',
   ].includes(path);

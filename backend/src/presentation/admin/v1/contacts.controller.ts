@@ -42,6 +42,7 @@ export class AdminContactsController {
     return this.listContacts.execute(query.organizationId || '', query, {
       q: query.q,
       tagId: query.tagId,
+      listId: query.listId,
     });
   }
 

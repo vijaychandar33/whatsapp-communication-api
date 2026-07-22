@@ -131,13 +131,16 @@ export class ListContactsHandler {
   async execute(
     organizationId: string,
     pagination: PaginationDto,
-    filters?: { q?: string; tagId?: string },
+    filters?: { q?: string; tagId?: string; listId?: string },
   ) {
     const where = {
       organizationId,
       deletedAt: null,
       ...(filters?.tagId
         ? { tags: { some: { tagId: filters.tagId } } }
+        : {}),
+      ...(filters?.listId
+        ? { listMemberships: { some: { listId: filters.listId } } }
         : {}),
       ...(filters?.q
         ? {
@@ -189,6 +192,7 @@ export class ListContactsHandler {
           conversations: {
             where: { deletedAt: null },
             select: {
+              id: true,
               communicationAccount: {
                 select: {
                   id: true,
@@ -197,6 +201,10 @@ export class ListContactsHandler {
                 },
               },
             },
+            orderBy: [
+              { lastMessageAt: 'desc' },
+              { updatedAt: 'desc' },
+            ],
             take: 20,
           },
         },
@@ -225,6 +233,7 @@ export class ListContactsHandler {
 
   private mergeWhatsappAccounts(
     conversations: Array<{
+      id: string;
       communicationAccount: {
         id: string;
         name: string;
@@ -251,23 +260,29 @@ export class ListContactsHandler {
         bsuid: string | null;
         parentBsuid: string | null;
         username: string | null;
+        conversationId: string | null;
       }
     >();
     for (const conv of conversations) {
       const a = conv.communicationAccount;
       if (!a) continue;
+      if (accountsById.has(a.id)) continue;
       accountsById.set(a.id, {
         ...a,
         bsuid: null,
         parentBsuid: null,
         username: null,
+        conversationId: conv.id,
       });
     }
     for (const identity of identities) {
       const a = identity.communicationAccount;
       const existing = accountsById.get(a.id);
       accountsById.set(a.id, {
-        ...(existing ?? a),
+        ...(existing ?? {
+          ...a,
+          conversationId: null,
+        }),
         bsuid: identity.bsuid,
         parentBsuid: identity.parentBsuid,
         username: identity.username,
@@ -304,6 +319,9 @@ export class GetContactHandler {
         conversations: {
           where: { deletedAt: null },
           select: {
+            id: true,
+            lastMessageAt: true,
+            status: true,
             communicationAccount: {
               select: {
                 id: true,
@@ -312,6 +330,10 @@ export class GetContactHandler {
               },
             },
           },
+          orderBy: [
+            { lastMessageAt: 'desc' },
+            { updatedAt: 'desc' },
+          ],
           take: 20,
         },
       },
@@ -319,18 +341,27 @@ export class GetContactHandler {
     if (!contact) throw new NotFoundError('Contact', id);
     const { conversations: _conversations, accountIdentities, ...rest } =
       contact;
+    const whatsappAccounts = this.mergeWhatsappAccounts(
+      contact.conversations,
+      accountIdentities,
+    );
     return {
       ...rest,
       tags: contact.tags.map((t) => t.tag),
-      whatsappAccounts: this.mergeWhatsappAccounts(
-        contact.conversations,
-        accountIdentities,
-      ),
+      whatsappAccounts,
+      conversations: contact.conversations.map((c) => ({
+        id: c.id,
+        lastMessageAt: c.lastMessageAt,
+        status: c.status,
+        communicationAccountId: c.communicationAccount?.id ?? null,
+      })),
+      primaryConversationId: contact.conversations[0]?.id ?? null,
     };
   }
 
   private mergeWhatsappAccounts(
     conversations: Array<{
+      id: string;
       communicationAccount: {
         id: string;
         name: string;
@@ -357,23 +388,30 @@ export class GetContactHandler {
         bsuid: string | null;
         parentBsuid: string | null;
         username: string | null;
+        conversationId: string | null;
       }
     >();
     for (const conv of conversations) {
       const a = conv.communicationAccount;
       if (!a) continue;
+      // Conversations are ordered newest-first; keep first (most recent) per account
+      if (accountsById.has(a.id)) continue;
       accountsById.set(a.id, {
         ...a,
         bsuid: null,
         parentBsuid: null,
         username: null,
+        conversationId: conv.id,
       });
     }
     for (const identity of identities) {
       const a = identity.communicationAccount;
       const existing = accountsById.get(a.id);
       accountsById.set(a.id, {
-        ...(existing ?? a),
+        ...(existing ?? {
+          ...a,
+          conversationId: null,
+        }),
         bsuid: identity.bsuid,
         parentBsuid: identity.parentBsuid,
         username: identity.username,

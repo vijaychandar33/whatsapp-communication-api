@@ -19,7 +19,7 @@ const API_SCOPES = [
   'contacts:write',
   'conversations:read',
   'webhooks:manage',
-  'broadcasts:send',
+  'campaigns:send',
 ] as const;
 
 type ApiKeyRow = {

@@ -1,7 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
-import { BroadcastsService } from '../../application/commands/broadcasts.service';
+import { CampaignsService } from '../../application/commands/campaigns.service';
 import {
   BROADCAST_QUEUE,
   BroadcastJobPayload,
@@ -14,13 +14,13 @@ import {
 export class BroadcastDeliveryProcessor extends WorkerHost {
   private readonly logger = new Logger(BroadcastDeliveryProcessor.name);
 
-  constructor(private readonly broadcasts: BroadcastsService) {
+  constructor(private readonly campaigns: CampaignsService) {
     super();
   }
 
   async process(job: Job<BroadcastJobPayload>): Promise<void> {
-    this.logger.log(`Delivering broadcast ${job.data.broadcastId}`);
-    await this.broadcasts.deliver(
+    this.logger.log(`Delivering campaign ${job.data.broadcastId}`);
+    await this.campaigns.deliver(
       job.data.organizationId,
       job.data.broadcastId,
     );

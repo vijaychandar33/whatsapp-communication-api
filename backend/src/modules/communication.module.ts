@@ -29,6 +29,7 @@ import {
   PatchConversationHandler,
 } from '../application/commands/conversation-handlers';
 import { TagsService } from '../application/commands/tags.service';
+import { ContactListsService } from '../application/commands/contact-lists.service';
 import {
   RefreshTemplateStatusHandler,
   SyncTemplatesHandler,
@@ -74,6 +75,7 @@ import {
 } from '../presentation/admin/v1/admin-crud.controller';
 import { AccountsController } from '../presentation/admin/v1/accounts.controller';
 import { AdminContactsController } from '../presentation/admin/v1/contacts.controller';
+import { ContactListsController } from '../presentation/admin/v1/contact-lists.controller';
 import { ConversationsController } from '../presentation/admin/v1/conversations.controller';
 import {
   ContactTagsNotesController,
@@ -100,8 +102,8 @@ import { TenantScopeGuard } from '../presentation/guards/tenant-scope.guard';
 import { RolesGuard } from '../presentation/guards/roles.guard';
 import { OptionalJwtAuthGuard } from '../presentation/guards/optional-jwt-auth.guard';
 import { MembersService } from '../application/commands/members.service';
-import { BroadcastsService } from '../application/commands/broadcasts.service';
-import { BroadcastsController } from '../presentation/admin/v1/broadcasts.controller';
+import { CampaignsService } from '../application/commands/campaigns.service';
+import { CampaignsController } from '../presentation/admin/v1/campaigns.controller';
 import { AiService } from '../application/ai/ai.service';
 import { LlmClient } from '../application/ai/llm.client';
 import { AiController } from '../presentation/admin/v1/ai.controller';
@@ -132,13 +134,14 @@ const queueImports = hasRedis
     InvitationsController,
     AccountsController,
     AdminContactsController,
+    ContactListsController,
     ConversationsController,
     TagsController,
     ContactTagsNotesController,
     TemplatesController,
     AdminMediaController,
     AdminMessagesController,
-    BroadcastsController,
+    CampaignsController,
     AiController,
     DashboardController,
     AnalyticsController,
@@ -152,7 +155,7 @@ const queueImports = hasRedis
   ],
   providers: [
     CommunicationSdk,
-    BroadcastsService,
+    CampaignsService,
     AiService,
     LlmClient,
     CreateOrganizationHandler,
@@ -171,6 +174,7 @@ const queueImports = hasRedis
     PatchConversationHandler,
     MarkConversationReadHandler,
     TagsService,
+    ContactListsService,
     SyncTemplatesHandler,
     RefreshTemplateStatusHandler,
     DeleteTemplateHandler,
@@ -208,6 +212,6 @@ const queueImports = hasRedis
     RealtimeGateway,
     ...queueProcessors,
   ],
-  exports: [CommunicationSdk, BroadcastsService, AiService],
+  exports: [CommunicationSdk, CampaignsService, AiService],
 })
 export class CommunicationModule {}

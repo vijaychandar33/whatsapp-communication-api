@@ -87,6 +87,11 @@ export class ListContactsQueryDto extends PaginationDto {
   @IsOptional()
   @IsUUID()
   tagId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter contacts belonging to this list' })
+  @IsOptional()
+  @IsUUID()
+  listId?: string;
 }
 
 export class ListMessagesQueryDto extends PaginationDto {

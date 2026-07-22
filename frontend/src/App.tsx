@@ -1,4 +1,4 @@
-import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
+import { Navigate, Outlet, Route, Routes, useParams } from 'react-router-dom';
 import { AppShell } from './components/layout/AppShell';
 import { useAuth } from './hooks/useAuth';
 import { LoginPage } from './pages/LoginPage';
@@ -15,9 +15,14 @@ import { TemplatesPage } from './pages/TemplatesPage';
 import { MediaPage } from './pages/MediaPage';
 import { AuditPage } from './pages/AuditPage';
 import { AgentsPage } from './pages/AgentsPage';
-import { BroadcastsPage, BroadcastDetailPage } from './pages/BroadcastsPage';
+import { CampaignsPage, CampaignDetailPage } from './pages/CampaignsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ProfilePage } from './pages/ProfilePage';
+
+function BroadcastLegacyRedirect() {
+  const { id } = useParams();
+  return <Navigate to={id ? `/campaigns/${id}` : '/campaigns'} replace />;
+}
 
 function ProtectedRoute() {
   const { ready, isAuthenticated } = useAuth();
@@ -53,8 +58,13 @@ export default function App() {
           <Route path="contacts" element={<ContactsPage />} />
           <Route path="conversations" element={<ConversationsPage />} />
           <Route path="messages" element={<MessagesPage />} />
-          <Route path="broadcasts" element={<BroadcastsPage />} />
-          <Route path="broadcasts/:id" element={<BroadcastDetailPage />} />
+          <Route path="campaigns" element={<CampaignsPage />} />
+          <Route path="campaigns/:id" element={<CampaignDetailPage />} />
+          <Route path="broadcasts" element={<Navigate to="/campaigns" replace />} />
+          <Route
+            path="broadcasts/:id"
+            element={<BroadcastLegacyRedirect />}
+          />
           <Route path="agents" element={<AgentsPage />} />
           <Route path="templates" element={<TemplatesPage />} />
           <Route path="media" element={<MediaPage />} />

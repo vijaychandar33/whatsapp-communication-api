@@ -20,7 +20,7 @@ import { SystemClock } from '../../infrastructure/clock/system-clock';
 import { OutboxService } from '../../infrastructure/outbox/outbox.service';
 import { ChannelProviderRegistry } from '../../infrastructure/providers/channel-provider.registry';
 import { AesSecretService } from '../../infrastructure/secrets/secret.service';
-import { BroadcastsService } from './broadcasts.service';
+import { CampaignsService } from './campaigns.service';
 import { AiService } from '../ai/ai.service';
 
 export interface ProcessWebhookCommand {
@@ -109,7 +109,7 @@ export class ProcessWebhookHandler {
     private readonly outbox: OutboxService,
     private readonly registry: ChannelProviderRegistry,
     private readonly secrets: AesSecretService,
-    private readonly broadcasts: BroadcastsService,
+    private readonly campaigns: CampaignsService,
     private readonly ai: AiService,
   ) {}
 
@@ -519,7 +519,7 @@ export class ProcessWebhookHandler {
               ? BroadcastRecipientStatus.FAILED
               : null;
     if (recipientStatus) {
-      await this.broadcasts
+      await this.campaigns
         .applyMessageStatus(message.id, recipientStatus)
         .catch(() => undefined);
     }

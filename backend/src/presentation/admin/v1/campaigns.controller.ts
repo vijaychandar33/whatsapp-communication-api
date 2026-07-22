@@ -23,7 +23,7 @@ import { TenantScopeGuard } from '../../guards/tenant-scope.guard';
 import { RolesGuard, RequireCapability } from '../../guards/roles.guard';
 import { CurrentUser } from '../../decorators';
 import { PaginationDto } from '../../dto/pagination.dto';
-import { BroadcastsService } from '../../../application/commands/broadcasts.service';
+import { CampaignsService } from '../../../application/commands/campaigns.service';
 
 class AudienceFilterDto {
   @ApiPropertyOptional({ type: [String] })
@@ -37,6 +37,12 @@ class AudienceFilterDto {
   @IsArray()
   @IsUUID('4', { each: true })
   contactIds?: string[];
+
+  @ApiPropertyOptional({ type: [String], description: 'Contact list IDs' })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  listIds?: string[];
 
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
@@ -55,7 +61,7 @@ class AudienceFilterDto {
   paramsByPhone?: Record<string, string[]>;
 }
 
-class CreateBroadcastDto {
+class CreateCampaignDto {
   @ApiProperty()
   @IsUUID()
   organizationId!: string;
@@ -98,12 +104,12 @@ class CreateBroadcastDto {
   scheduledAt?: string;
 }
 
-@ApiTags('Admin Broadcasts')
+@ApiTags('Admin Campaigns')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, TenantScopeGuard, RolesGuard)
-@Controller('admin/v1/broadcasts')
-export class BroadcastsController {
-  constructor(private readonly broadcasts: BroadcastsService) {}
+@Controller('admin/v1/campaigns')
+export class CampaignsController {
+  constructor(private readonly campaigns: CampaignsService) {}
 
   @Get()
   @RequireCapability('messaging_read')
@@ -111,7 +117,7 @@ export class BroadcastsController {
     @Query() pagination: PaginationDto,
     @Query('organizationId') organizationId: string,
   ) {
-    return this.broadcasts.list(organizationId, pagination);
+    return this.campaigns.list(organizationId, pagination);
   }
 
   @Get(':id')
@@ -121,16 +127,16 @@ export class BroadcastsController {
     @Query('organizationId') organizationId: string,
   ) {
     return {
-      data: await this.broadcasts.get(organizationId, id),
+      data: await this.campaigns.get(organizationId, id),
       message: 'OK',
     };
   }
 
   @Post('preview')
   @RequireCapability('messaging_write')
-  async preview(@Body() dto: CreateBroadcastDto) {
+  async preview(@Body() dto: CreateCampaignDto) {
     return {
-      data: await this.broadcasts.previewAudience(dto.organizationId, dto),
+      data: await this.campaigns.previewAudience(dto.organizationId, dto),
       message: 'OK',
     };
   }
@@ -138,15 +144,15 @@ export class BroadcastsController {
   @Post()
   @RequireCapability('messaging_write')
   async create(
-    @Body() dto: CreateBroadcastDto,
+    @Body() dto: CreateCampaignDto,
     @CurrentUser() user: { userId?: string; sub?: string },
   ) {
     return {
-      data: await this.broadcasts.create({
+      data: await this.campaigns.create({
         ...dto,
         createdByUserId: user.userId ?? user.sub,
       }),
-      message: 'Broadcast created',
+      message: 'Campaign created',
     };
   }
 
@@ -157,8 +163,8 @@ export class BroadcastsController {
     @Query('organizationId') organizationId: string,
   ) {
     return {
-      data: await this.broadcasts.start(organizationId, id),
-      message: 'Broadcast started',
+      data: await this.campaigns.start(organizationId, id),
+      message: 'Campaign started',
     };
   }
 
@@ -169,8 +175,8 @@ export class BroadcastsController {
     @Query('organizationId') organizationId: string,
   ) {
     return {
-      data: await this.broadcasts.cancel(organizationId, id),
-      message: 'Broadcast cancelled',
+      data: await this.campaigns.cancel(organizationId, id),
+      message: 'Campaign cancelled',
     };
   }
 }
