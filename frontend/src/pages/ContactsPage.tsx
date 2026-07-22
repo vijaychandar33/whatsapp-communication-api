@@ -907,7 +907,11 @@ export function ContactsPage() {
 
       <Modal
         open={open}
-        title="Create contact"
+        title={
+          activeList
+            ? `Add contact to ${activeList.name}`
+            : 'Create contact'
+        }
         onClose={() => setOpen(false)}
         footer={
           <>
@@ -918,12 +922,19 @@ export function ContactsPage() {
               loading={create.isPending}
               onClick={form.handleSubmit((values) => create.mutateAsync(values))}
             >
-              Create
+              {activeList ? 'Add to list' : 'Create'}
             </Button>
           </>
         }
       >
         <form className="space-y-4">
+          {activeList ? (
+            <p className="text-sm text-slate-500">
+              If this phone number already exists, the contact will be added to{' '}
+              <span className="font-medium text-slate-700">{activeList.name}</span>{' '}
+              without changing other lists.
+            </p>
+          ) : null}
           {isSystem ? (
             <Input
               label="Organization ID"

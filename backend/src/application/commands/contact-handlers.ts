@@ -1,10 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import {
-  ContactAlreadyExists,
-  NotFoundError,
-  ValidationError,
-} from '../../domain/errors';
+import { NotFoundError, ValidationError } from '../../domain/errors';
 import { PhoneNumber } from '../../domain/value-objects/phone-number.vo';
 import { EmailAddress } from '../../domain/value-objects/email-address.vo';
 import { PrismaService } from '../../infrastructure/persistence/prisma/prisma.service';
@@ -61,8 +57,50 @@ export class CreateContactHandler {
           },
         },
       });
-      if (existing && !existing.deletedAt) {
-        throw new ContactAlreadyExists(phoneNumber);
+
+      if (existing) {
+        if (existing.deletedAt) {
+          return this.prisma.contact.update({
+            where: { id: existing.id },
+            data: {
+              deletedAt: null,
+              displayName: cmd.displayName?.trim() || existing.displayName,
+              email: email ?? existing.email,
+              company: cmd.company?.trim() || existing.company,
+              avatarUrl: cmd.avatarUrl ?? existing.avatarUrl,
+              externalId: cmd.externalId ?? existing.externalId,
+              metadata:
+                cmd.metadata !== undefined
+                  ? (cmd.metadata as Prisma.InputJsonValue)
+                  : undefined,
+            },
+          });
+        }
+
+        const patch: Prisma.ContactUpdateInput = {};
+        if (cmd.displayName?.trim() && !existing.displayName) {
+          patch.displayName = cmd.displayName.trim();
+        }
+        if (email && !existing.email) patch.email = email;
+        if (cmd.company?.trim() && !existing.company) {
+          patch.company = cmd.company.trim();
+        }
+        if (cmd.avatarUrl && !existing.avatarUrl) patch.avatarUrl = cmd.avatarUrl;
+        if (cmd.externalId && !existing.externalId) {
+          patch.externalId = cmd.externalId;
+        }
+        if (cmd.metadata !== undefined) {
+          patch.metadata = cmd.metadata as Prisma.InputJsonValue;
+        }
+
+        if (Object.keys(patch).length > 0) {
+          return this.prisma.contact.update({
+            where: { id: existing.id },
+            data: patch,
+          });
+        }
+
+        return existing;
       }
     }
 
@@ -72,8 +110,8 @@ export class CreateContactHandler {
         organizationId: cmd.organizationId,
         phoneNumber,
         email,
-        displayName: cmd.displayName,
-        company: cmd.company,
+        displayName: cmd.displayName?.trim() || null,
+        company: cmd.company?.trim() || null,
         avatarUrl: cmd.avatarUrl,
         externalId: cmd.externalId,
         metadata: (cmd.metadata ?? {}) as Prisma.InputJsonValue,
